@@ -249,6 +249,7 @@ export default function App() {
   const handleSaveQuiz = (quiz: Quiz) => {
     saveQuizzes(quiz);
     setSelectedQuizId(quiz.id);
+    setEditingQuiz(null);
     setGameState('setup');
   };
 
@@ -554,7 +555,7 @@ export default function App() {
         <QuizEditor 
           initialQuiz={editingQuiz} 
           onSave={handleSaveQuiz} 
-          onAutoSave={(q) => { setEditingQuiz(q); saveQuizzes(q); }}
+          onAutoSave={(q) => setEditingQuiz(q)}
           onCancel={() => { setEditingQuiz(null); setGameState('setup'); }} 
         />
       </div>

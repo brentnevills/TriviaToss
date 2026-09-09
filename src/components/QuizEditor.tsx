@@ -17,7 +17,8 @@ export default function QuizEditor({ initialQuiz, onSave, onAutoSave, onCancel }
     if (onAutoSave) {
       onAutoSave(quiz);
     }
-  }, [quiz, onAutoSave]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quiz]);
   
   // New item state
   const [newItemType, setNewItemType] = useState<'q' | 'w'>(() => (localStorage.getItem('trivia-draft-type') as any) || 'q');
