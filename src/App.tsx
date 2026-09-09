@@ -96,20 +96,22 @@ export default function App() {
   }, [quizzes, selectedQuizId]);
 
   const saveQuizzes = async (quiz: Quiz) => {
+    // Optimistic update to prevent race conditions with selectedQuizId
+    const existingIdx = quizzes.findIndex(q => q.id === quiz.id);
+    let newQuizzes = [...quizzes];
+    if (existingIdx >= 0) {
+      newQuizzes[existingIdx] = quiz;
+    } else {
+      newQuizzes.push(quiz);
+    }
+    setQuizzes(newQuizzes);
+
     if (user) {
       // Save to Firestore
       const quizToSave = { ...quiz, userId: user.uid };
       await setDoc(doc(db, 'quizzes', quizToSave.id), quizToSave);
     } else {
       // Save to LocalStorage
-      const existingIdx = quizzes.findIndex(q => q.id === quiz.id);
-      let newQuizzes = [...quizzes];
-      if (existingIdx >= 0) {
-        newQuizzes[existingIdx] = quiz;
-      } else {
-        newQuizzes.push(quiz);
-      }
-      setQuizzes(newQuizzes);
       localStorage.setItem('trivia-quizzes', JSON.stringify(newQuizzes.filter(q => q.id !== 'default-quiz')));
     }
   };
@@ -155,8 +157,10 @@ export default function App() {
     const selectedQuiz = quizzes.find(q => q.id === selectedQuizId);
     if (!selectedQuiz) return;
     
-    if (questionCount > selectedQuiz.bank.length) {
-      alert(`You requested ${questionCount} questions, but the quiz only has ${selectedQuiz.bank.length} cards. Add more cards to the quiz, or lower the question count.`);
+    // Auto-adjust question count to not exceed available cards
+    const actualCount = Math.min(questionCount, selectedQuiz.bank.length);
+    if (actualCount === 0) {
+      alert("This quiz has no cards! Add some cards before playing.");
       return;
     }
 
@@ -169,7 +173,7 @@ export default function App() {
 
     // Shuffle and add unique IDs
     const shuffled = [...selectedQuiz.bank].sort(() => 0.5 - Math.random());
-    const selectedWithIds = shuffled.slice(0, questionCount).map((q, i) => ({
+    const selectedWithIds = shuffled.slice(0, actualCount).map((q, i) => ({
       ...q,
       id: `card-${i}-${Date.now()}`
     })) as CardData[];
