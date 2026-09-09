@@ -4,7 +4,9 @@ import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+const db = (firebaseConfig as any).firestoreDatabaseId 
+  ? getFirestore(app, (firebaseConfig as any).firestoreDatabaseId)
+  : getFirestore(app);
 const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
 
