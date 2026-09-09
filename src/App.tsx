@@ -122,6 +122,7 @@ export default function App() {
   const [questionCount, setQuestionCount] = useState(10);
   const [mode, setMode] = useState<GameMode>('standard');
   const [displayStrategy, setDisplayStrategy] = useState<DisplayStrategy>('hide');
+  const [includeDefaultWildcards, setIncludeDefaultWildcards] = useState(false);
   
   // Playing state
   const [currentTeamIdx, setCurrentTeamIdx] = useState(0);
@@ -273,8 +274,18 @@ export default function App() {
     const selectedQuiz = quizzes.find(q => q.id === selectedQuizId);
     if (!selectedQuiz) return;
     
+    let pool = [...selectedQuiz.bank];
+    if (includeDefaultWildcards) {
+       pool.push(
+         { type: 'w', action: 'free', text: 'Free points! Everybody gets a little boost.', pts: 200 },
+         { type: 'w', action: 'lose', text: 'Oh no! You lost some points.', pts: -200 },
+         { type: 'w', action: 'steal', text: 'Steal points from the leading team!', pts: 300 },
+         { type: 'w', action: 'swap', text: 'Surprise! Swap scores with another team.', pts: 0 }
+       );
+    }
+    
     // Auto-adjust question count to not exceed available cards
-    const actualCount = Math.min(questionCount, selectedQuiz.bank.length);
+    const actualCount = Math.min(questionCount, pool.length);
     if (actualCount === 0) {
       alert("This quiz has no cards! Add some cards before playing.");
       return;
@@ -285,7 +296,7 @@ export default function App() {
     setCurrentTeamIdx(0);
 
     // Shuffle and add unique IDs
-    const shuffled = [...selectedQuiz.bank].sort(() => 0.5 - Math.random());
+    const shuffled = pool.sort(() => 0.5 - Math.random());
     const selectedWithIds = shuffled.slice(0, actualCount).map((q, i) => ({
       ...q,
       id: `card-${i}-${Date.now()}`
@@ -360,19 +371,9 @@ export default function App() {
     const newAnsweredIds = [...answeredIds, answeredQId];
     
     if (mode === 'standard') {
-      let newActive = [...activeQuestions];
-      let newAnswered = [...newAnsweredIds];
+      setAnsweredIds(newAnsweredIds);
       
-      // If 5 answered, remove them to re-layout grid
-      if (newAnsweredIds.length > 0 && newAnsweredIds.length % 5 === 0) {
-        newActive = activeQuestions.filter(q => !newAnsweredIds.includes(q.id));
-        newAnswered = [];
-      }
-      
-      setActiveQuestions(newActive);
-      setAnsweredIds(newAnswered);
-      
-      if (newActive.length - newAnswered.length === 0) {
+      if (activeQuestions.length - newAnsweredIds.length === 0) {
         setTimeout(() => setGameState('gameover'), 500);
       }
     } else {
@@ -709,6 +710,18 @@ export default function App() {
                   <option value="hide">Mystery Mode (Hidden)</option>
                 </select>
               </div>
+              <div className="space-y-2">
+                <label className="block text-sm font-black text-slate-700 uppercase tracking-wider">Wildcards</label>
+                <button 
+                  onClick={() => setIncludeDefaultWildcards(!includeDefaultWildcards)}
+                  className={`w-full px-5 py-3 border-2 rounded-xl font-black text-lg transition-all ${
+                    includeDefaultWildcards ? 'bg-purple-100 border-purple-500 text-purple-700' : 'bg-white border-slate-300 text-slate-400 hover:border-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  {includeDefaultWildcards ? '✓ Default Wildcards Added' : 'No Default Wildcards'}
+                </button>
+              </div>
+
             </div>
 
             <button 
