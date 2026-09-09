@@ -1,0 +1,12 @@
+[
+  {"type": "q", "q": "What is the capital of France?", "a": "Paris", "pts": 100},
+  {"type": "q", "q": "What is 2 + 2?", "a": "4", "pts": 100},
+  {"type": "w", "action": "free", "text": "Free Points!", "pts": 200},
+  {"type": "q", "q": "Who wrote Hamlet?", "a": "William Shakespeare", "pts": 300},
+  {"type": "w", "action": "lose", "text": "Oh no! Lose points.", "pts": -100},
+  {"type": "q", "q": "What is the largest ocean?", "a": "Pacific Ocean", "pts": 200},
+  {"type": "w", "action": "steal", "text": "Steal points from the leader!", "pts": 150},
+  {"type": "q", "q": "What year did the Titanic sink?", "a": "1912", "pts": 400},
+  {"type": "w", "action": "swap", "text": "Swap scores with another team!", "pts": 0},
+  {"type": "q", "q": "What is the chemical symbol for Gold?", "a": "Au", "pts": 300}
+]

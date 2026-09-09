@@ -1,0 +1,6 @@
+{
+  "name": "Trivia Game",
+  "description": "A customizable team trivia game.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
