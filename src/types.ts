@@ -21,6 +21,8 @@ export type QuizItem = Omit<Question, 'id'> | Omit<Wildcard, 'id'>;
 export type Quiz = {
   id: string;
   name: string;
+  course?: string;
+  authorName?: string;
   bank: QuizItem[];
   userId?: string;
 };

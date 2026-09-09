@@ -63,15 +63,37 @@ export default function QuizEditor({ initialQuiz, onSave, onCancel }: Props) {
         <h1 className="text-4xl font-black text-slate-800">Quiz Editor</h1>
       </div>
 
-      <div className="bg-white p-8 rounded-[2rem] shadow-sm border-2 border-slate-200 mb-8">
-        <label className="block text-sm font-black text-slate-700 mb-3 uppercase tracking-wider">Quiz Name</label>
-        <input 
-          type="text" 
-          value={quiz.name} 
-          onChange={e => setQuiz({...quiz, name: e.target.value})}
-          className="w-full px-5 py-4 border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 bg-white font-black text-lg text-slate-800 transition-all outline-none"
-          placeholder="e.g., Chapter 1 Review"
-        />
+      <div className="bg-white p-8 rounded-[2rem] shadow-sm border-2 border-slate-200 mb-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div>
+          <label className="block text-sm font-black text-slate-700 mb-3 uppercase tracking-wider">Quiz Name</label>
+          <input 
+            type="text" 
+            value={quiz.name} 
+            onChange={e => setQuiz({...quiz, name: e.target.value})}
+            className="w-full px-5 py-4 border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 bg-white font-black text-lg text-slate-800 transition-all outline-none"
+            placeholder="e.g., Chapter 1 Review"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-black text-slate-700 mb-3 uppercase tracking-wider">Course / Subject</label>
+          <input 
+            type="text" 
+            value={quiz.course || ''} 
+            onChange={e => setQuiz({...quiz, course: e.target.value})}
+            className="w-full px-5 py-4 border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 bg-white font-black text-lg text-slate-800 transition-all outline-none"
+            placeholder="e.g., Math 101"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-black text-slate-700 mb-3 uppercase tracking-wider">Author Name</label>
+          <input 
+            type="text" 
+            value={quiz.authorName || ''} 
+            onChange={e => setQuiz({...quiz, authorName: e.target.value})}
+            className="w-full px-5 py-4 border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 bg-white font-black text-lg text-slate-800 transition-all outline-none"
+            placeholder="e.g., Mr. Smith"
+          />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-8">

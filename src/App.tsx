@@ -75,20 +75,26 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Fetch Firestore quizzes when user changes
+  // Fetch Firestore quizzes regardless of user
   useEffect(() => {
-    if (user) {
-      const q = query(collection(db, 'quizzes'), where('userId', '==', user.uid));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        const firestoreQuizzes: Quiz[] = snapshot.docs.map(doc => doc.data() as Quiz);
-        const combined = [DEFAULT_QUIZ, ...firestoreQuizzes];
-        setQuizzes(combined);
-      }, (error) => {
-        console.error("Firestore onSnapshot error:", error);
+    const q = query(collection(db, 'quizzes'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const firestoreQuizzes: Quiz[] = snapshot.docs.map(doc => doc.data() as Quiz);
+      
+      // Sort quizzes by course
+      firestoreQuizzes.sort((a, b) => {
+        const courseA = a.course || 'Uncategorized';
+        const courseB = b.course || 'Uncategorized';
+        return courseA.localeCompare(courseB);
       });
-      return () => unsubscribe();
-    }
-  }, [user]);
+
+      const combined = [DEFAULT_QUIZ, ...firestoreQuizzes];
+      setQuizzes(combined);
+    }, (error) => {
+      console.error("Firestore onSnapshot error:", error);
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Keep selectedQuizId valid
   useEffect(() => {
@@ -110,7 +116,7 @@ export default function App() {
 
     if (user) {
       // Save to Firestore
-      const quizToSave = { ...quiz, userId: user.uid };
+      const quizToSave = { ...quiz, userId: user.uid, authorName: quiz.authorName || user.displayName || user.email || 'Anonymous' };
       await setDoc(doc(db, 'quizzes', quizToSave.id), quizToSave);
     } else {
       // Save to LocalStorage
@@ -122,6 +128,8 @@ export default function App() {
     const newQuiz: Quiz = {
       id: `quiz-${Date.now()}`,
       name: 'New Quiz',
+      course: '',
+      authorName: user?.displayName || user?.email || '',
       bank: []
     };
     setEditingQuiz(newQuiz);
@@ -377,25 +385,32 @@ export default function App() {
           <div className="space-y-8 bg-white p-8 md:p-10 rounded-[2rem] shadow-xl border-2 border-slate-200">
             
             <div className="bg-slate-100 p-6 rounded-2xl border-2 border-slate-200 mb-6">
-              <label className="block text-sm font-black text-slate-700 mb-3 uppercase tracking-wider">Select Quiz</label>
-              <div className="flex flex-col md:flex-row gap-4">
-                <select 
-                  value={selectedQuizId} 
-                  onChange={e => setSelectedQuizId(e.target.value)}
-                  className="flex-1 px-5 py-4 border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 bg-white shadow-sm font-black text-lg text-slate-800 transition-all outline-none"
-                >
-                  {quizzes.map(q => (
-                    <option key={q.id} value={q.id}>{q.name} ({q.bank.length} cards)</option>
-                  ))}
-                </select>
-                <div className="flex flex-wrap gap-3">
-                  <button onClick={handleEditQuiz} className="flex items-center justify-center gap-2 px-6 py-4 bg-white hover:bg-slate-50 text-slate-700 border-b-[6px] border-slate-300 rounded-xl font-black transition-all active:border-b-0 active:translate-y-[6px]">
-                    <Edit2 className="w-5 h-5" /> Edit
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+                <label className="block text-sm font-black text-slate-700 uppercase tracking-wider">Select Quiz ({quizzes.length} available)</label>
+                <div className="flex gap-2 w-full sm:w-auto">
+                  <button onClick={handleEditQuiz} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-700 border-b-[4px] border-slate-300 rounded-xl font-black transition-all active:border-b-0 active:translate-y-[4px]">
+                    <Edit2 className="w-4 h-4" /> Edit Selected
                   </button>
-                  <button onClick={handleCreateQuiz} className="flex items-center justify-center gap-2 px-6 py-4 bg-blue-500 hover:bg-blue-400 text-white border-b-[6px] border-blue-700 rounded-xl font-black transition-all active:border-b-0 active:translate-y-[6px]">
-                    <Plus className="w-5 h-5" /> New
+                  <button onClick={handleCreateQuiz} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-500 hover:bg-blue-400 text-white border-b-[4px] border-blue-700 rounded-xl font-black transition-all active:border-b-0 active:translate-y-[4px]">
+                    <Plus className="w-4 h-4" /> New Quiz
                   </button>
                 </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-96 overflow-y-auto p-1">
+                {quizzes.map(q => (
+                  <button 
+                    key={q.id}
+                    onClick={() => setSelectedQuizId(q.id)}
+                    className={`flex flex-col text-left p-4 rounded-xl border-2 transition-all group ${selectedQuizId === q.id ? 'bg-blue-50 border-blue-500 ring-4 ring-blue-500/20 shadow-sm' : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50 hover:shadow-sm'}`}
+                  >
+                    <div className="flex justify-between items-start w-full mb-1 gap-2">
+                      <h3 className="font-black text-slate-800 text-lg leading-tight line-clamp-2">{q.name}</h3>
+                      <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-md shrink-0">{q.bank.length} cards</span>
+                    </div>
+                    <p className="text-sm font-bold text-slate-500 truncate w-full mt-1">Course: {q.course || 'Uncategorized'}</p>
+                    <p className="text-xs text-slate-400 mt-2 font-medium truncate w-full">By: {q.authorName || 'Anonymous'}</p>
+                  </button>
+                ))}
               </div>
             </div>
 
