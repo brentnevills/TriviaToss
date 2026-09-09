@@ -72,6 +72,14 @@ export default function QuizEditor({ initialQuiz, onSave, onAutoSave, onCancel }
     setQuiz({ ...quiz, bank: newBank });
   };
 
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSave = () => {
+    setIsSaving(true);
+    onSave(quiz);
+    setTimeout(() => setIsSaving(false), 800);
+  };
+
   return (
     <div className="max-w-5xl mx-auto p-4 md:p-10 animate-in fade-in duration-500">
       <div className="flex items-center gap-6 mb-10">
@@ -216,8 +224,8 @@ export default function QuizEditor({ initialQuiz, onSave, onAutoSave, onCancel }
         </div>
       </div>
 
-      <button onClick={() => onSave(quiz)} className="w-full bg-green-500 hover:bg-green-400 border-b-[8px] border-green-700 active:border-b-0 active:translate-y-[8px] text-white font-black py-5 px-6 rounded-2xl transition-all flex items-center justify-center gap-3 text-3xl">
-        <Save className="w-7 h-7" /> Save Quiz
+      <button onClick={handleSave} disabled={isSaving} className={`w-full ${isSaving ? 'bg-slate-400 border-slate-500 translate-y-[8px] border-b-0' : 'bg-green-500 hover:bg-green-400 border-b-[8px] border-green-700 active:border-b-0 active:translate-y-[8px]'} text-white font-black py-5 px-6 rounded-2xl transition-all flex items-center justify-center gap-3 text-3xl`}>
+        <Save className="w-7 h-7" /> {isSaving ? 'Saving to System...' : 'Save Quiz'}
       </button>
 
     </div>

@@ -143,6 +143,8 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  const [isQuizzesLoaded, setIsQuizzesLoaded] = useState(false);
+
   // Fetch Firestore quizzes regardless of user and merge with local
   useEffect(() => {
     const q = query(collection(db, 'quizzes'));
@@ -174,6 +176,7 @@ export default function App() {
       });
 
       setQuizzes([DEFAULT_QUIZ, ...uniqueQuizzes]);
+      setIsQuizzesLoaded(true);
     }, (error) => {
       console.error("Firestore onSnapshot error:", error);
       
@@ -187,16 +190,17 @@ export default function App() {
         } catch (e) {}
       }
       setQuizzes([DEFAULT_QUIZ, ...localQuizzes]);
+      setIsQuizzesLoaded(true);
     });
     return () => unsubscribe();
   }, []);
 
   // Keep selectedQuizId valid
   useEffect(() => {
-    if (quizzes.length > 0 && !quizzes.find(q => q.id === selectedQuizId)) {
+    if (isQuizzesLoaded && quizzes.length > 0 && !quizzes.find(q => q.id === selectedQuizId)) {
       setSelectedQuizId(quizzes[0].id);
     }
-  }, [quizzes, selectedQuizId]);
+  }, [isQuizzesLoaded, quizzes, selectedQuizId]);
 
   const saveQuizzes = async (quiz: Quiz) => {
     // Optimistic update to prevent race conditions with selectedQuizId
@@ -209,6 +213,9 @@ export default function App() {
     }
     setQuizzes(newQuizzes);
 
+    // Always save to LocalStorage immediately so it never gets lost locally
+    localStorage.setItem('trivia-quizzes', JSON.stringify(newQuizzes.filter(q => q.id !== 'default-quiz')));
+
     // Always save to Firestore so it can be accessed across devices
     try {
       const quizToSave = { 
@@ -219,8 +226,6 @@ export default function App() {
       await setDoc(doc(db, 'quizzes', quizToSave.id), quizToSave);
     } catch (err) {
       console.error("Failed to save to Firestore:", err);
-      // Fallback to local storage if offline
-      localStorage.setItem('trivia-quizzes', JSON.stringify(newQuizzes.filter(q => q.id !== 'default-quiz')));
     }
   };
 
