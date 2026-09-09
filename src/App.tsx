@@ -92,12 +92,27 @@ const getHoneycombLayout = (N: number) => {
 };
 
 export default function App() {
-  const [gameState, setGameState] = useState<'setup' | 'editing' | 'playing' | 'gameover'>('setup');
+  const [gameState, setGameState] = useState<'setup' | 'editing' | 'playing' | 'gameover'>(() => {
+    return (localStorage.getItem('trivia-game-state') as any) || 'setup';
+  });
   
   // Quizzes state
   const [quizzes, setQuizzes] = useState<Quiz[]>([DEFAULT_QUIZ]);
-  const [selectedQuizId, setSelectedQuizId] = useState<string>(DEFAULT_QUIZ.id);
-  const [editingQuiz, setEditingQuiz] = useState<Quiz | null>(null);
+  const [selectedQuizId, setSelectedQuizId] = useState<string>(() => {
+    return localStorage.getItem('trivia-selected-quiz-id') || DEFAULT_QUIZ.id;
+  });
+  const [editingQuiz, setEditingQuiz] = useState<Quiz | null>(() => {
+    const saved = localStorage.getItem('trivia-editing-quiz');
+    try { return saved ? JSON.parse(saved) : null; } catch { return null; }
+  });
+
+  // Persist current state across refreshes
+  useEffect(() => { localStorage.setItem('trivia-game-state', gameState); }, [gameState]);
+  useEffect(() => { localStorage.setItem('trivia-selected-quiz-id', selectedQuizId); }, [selectedQuizId]);
+  useEffect(() => { 
+    if (editingQuiz) localStorage.setItem('trivia-editing-quiz', JSON.stringify(editingQuiz));
+    else localStorage.removeItem('trivia-editing-quiz');
+  }, [editingQuiz]);
 
   // Setup state
   const [teams, setTeams] = useState<Team[]>([
@@ -539,7 +554,8 @@ export default function App() {
         <QuizEditor 
           initialQuiz={editingQuiz} 
           onSave={handleSaveQuiz} 
-          onCancel={() => setGameState('setup')} 
+          onAutoSave={(q) => { setEditingQuiz(q); saveQuizzes(q); }}
+          onCancel={() => { setEditingQuiz(null); setGameState('setup'); }} 
         />
       </div>
     );

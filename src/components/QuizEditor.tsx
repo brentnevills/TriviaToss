@@ -5,24 +5,41 @@ import { Trash2, Plus, Save, ArrowLeft, HelpCircle, Zap } from 'lucide-react';
 type Props = {
   initialQuiz: Quiz;
   onSave: (quiz: Quiz) => void;
+  onAutoSave?: (quiz: Quiz) => void;
   onCancel: () => void;
 };
 
-export default function QuizEditor({ initialQuiz, onSave, onCancel }: Props) {
+export default function QuizEditor({ initialQuiz, onSave, onAutoSave, onCancel }: Props) {
   const [quiz, setQuiz] = useState<Quiz>(initialQuiz);
   
+  // Auto-save whenever the quiz state changes
+  useEffect(() => {
+    if (onAutoSave) {
+      onAutoSave(quiz);
+    }
+  }, [quiz, onAutoSave]);
+  
   // New item state
-  const [newItemType, setNewItemType] = useState<'q' | 'w'>('q');
+  const [newItemType, setNewItemType] = useState<'q' | 'w'>(() => (localStorage.getItem('trivia-draft-type') as any) || 'q');
   
   // Q state
-  const [qText, setQText] = useState('');
-  const [aText, setAText] = useState('');
-  const [qPts, setQPts] = useState(100);
+  const [qText, setQText] = useState(() => localStorage.getItem('trivia-draft-q') || '');
+  const [aText, setAText] = useState(() => localStorage.getItem('trivia-draft-a') || '');
+  const [qPts, setQPts] = useState(() => parseInt(localStorage.getItem('trivia-draft-qpts') || '100'));
   
   // W state
-  const [wAction, setWAction] = useState<'free' | 'lose' | 'steal' | 'swap'>('free');
-  const [wText, setWText] = useState('');
-  const [wPts, setWPts] = useState(200);
+  const [wAction, setWAction] = useState<'free' | 'lose' | 'steal' | 'swap'>(() => (localStorage.getItem('trivia-draft-waction') as any) || 'free');
+  const [wText, setWText] = useState(() => localStorage.getItem('trivia-draft-wtext') || '');
+  const [wPts, setWPts] = useState(() => parseInt(localStorage.getItem('trivia-draft-wpts') || '200'));
+
+  // Persist draft fields
+  useEffect(() => { localStorage.setItem('trivia-draft-type', newItemType); }, [newItemType]);
+  useEffect(() => { localStorage.setItem('trivia-draft-q', qText); }, [qText]);
+  useEffect(() => { localStorage.setItem('trivia-draft-a', aText); }, [aText]);
+  useEffect(() => { localStorage.setItem('trivia-draft-qpts', qPts.toString()); }, [qPts]);
+  useEffect(() => { localStorage.setItem('trivia-draft-waction', wAction); }, [wAction]);
+  useEffect(() => { localStorage.setItem('trivia-draft-wtext', wText); }, [wText]);
+  useEffect(() => { localStorage.setItem('trivia-draft-wpts', wPts.toString()); }, [wPts]);
 
   const handleAddItem = () => {
     let newItem: QuizItem;
