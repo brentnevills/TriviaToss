@@ -23,25 +23,96 @@ const DEFAULT_QUIZ: Quiz = {
   bank: defaultQuestions as any
 };
 
+const getHoneycombLayout = (N: number) => {
+  const C = Math.ceil(Math.sqrt(N));
+  let coords = [];
+  let itemsLeft = N;
+  let isEven = true;
+  let rowIdx = 0;
+  
+  while (itemsLeft > 0) {
+    let capacity = isEven ? C : C - 1;
+    let k = Math.min(itemsLeft, capacity);
+    
+    // Calculate integer offset to center the row on the global lattice
+    const offset = Math.round((C - k) / 2 - (!isEven ? 0.5 : 0));
+    
+    for (let c = 0; c < k; c++) {
+      coords.push({ rowIdx, colIdx: c + offset, k, C });
+    }
+    itemsLeft -= k;
+    isEven = !isEven;
+    rowIdx++;
+  }
+  
+  const HEX_WIDTH = Math.sqrt(3);
+  const HEX_HEIGHT = 2;
+  const HORIZ_SPACING = Math.sqrt(3);
+  const VERT_SPACING = 1.5;
+  
+  const spotsWithCenters = coords.map((spot, i) => {
+    // Map strictly to a perfect offset honeycomb lattice
+    const cx = (spot.colIdx + (spot.rowIdx % 2 === 1 ? 0.5 : 0)) * HORIZ_SPACING;
+    const cy = spot.rowIdx * VERT_SPACING;
+    return { ...spot, index: i, cx, cy };
+  });
+  
+  let minCx = Infinity, maxCx = -Infinity;
+  let minCy = Infinity, maxCy = -Infinity;
+  spotsWithCenters.forEach(s => {
+    minCx = Math.min(minCx, s.cx);
+    maxCx = Math.max(maxCx, s.cx);
+    minCy = Math.min(minCy, s.cy);
+    maxCy = Math.max(maxCy, s.cy);
+  });
+  
+  const totalWidth = (maxCx - minCx) + HEX_WIDTH;
+  const totalHeight = (maxCy - minCy) + HEX_HEIGHT;
+  const aspectRatio = totalWidth / totalHeight;
+  
+  return {
+    aspectRatio,
+    spots: spotsWithCenters.map(s => {
+      const width = (HEX_WIDTH / totalWidth) * 100;
+      const height = (HEX_HEIGHT / totalHeight) * 100;
+      const left = ((s.cx - HEX_WIDTH/2 - (minCx - HEX_WIDTH/2)) / totalWidth) * 100;
+      const top = ((s.cy - HEX_HEIGHT/2 - (minCy - HEX_HEIGHT/2)) / totalHeight) * 100;
+      
+      return {
+        index: s.index,
+        left,
+        top,
+        width,
+        height,
+        cx: left + width / 2,
+        cy: top + height / 2
+      };
+    })
+  };
+};
+
 export default function App() {
   const [gameState, setGameState] = useState<'setup' | 'editing' | 'playing' | 'gameover'>('setup');
   
   // Quizzes state
-  const [quizzes, setQuizzes] = useState<Quiz[]>([]);
-  const [selectedQuizId, setSelectedQuizId] = useState<string>('');
+  const [quizzes, setQuizzes] = useState<Quiz[]>([DEFAULT_QUIZ]);
+  const [selectedQuizId, setSelectedQuizId] = useState<string>(DEFAULT_QUIZ.id);
   const [editingQuiz, setEditingQuiz] = useState<Quiz | null>(null);
 
   // Setup state
-  const [teamCount, setTeamCount] = useState(2);
-  const [questionCount, setQuestionCount] = useState(6);
+  const [teams, setTeams] = useState<Team[]>([
+    { name: 'Team 1', score: 0 },
+    { name: 'Team 2', score: 0 }
+  ]);
+  const [questionCount, setQuestionCount] = useState(10);
   const [mode, setMode] = useState<GameMode>('standard');
-  const [displayStrategy, setDisplayStrategy] = useState<DisplayStrategy>('show');
+  const [displayStrategy, setDisplayStrategy] = useState<DisplayStrategy>('hide');
   
   // Playing state
-  const [teams, setTeams] = useState<Team[]>([]);
   const [currentTeamIdx, setCurrentTeamIdx] = useState(0);
   const [activeQuestions, setActiveQuestions] = useState<CardData[]>([]);
-  const [conquerTree, setConquerTree] = useState<TreeNode | null>(null);
+  const [answeredIds, setAnsweredIds] = useState<string[]>([]);
+  const [conquerSpots, setConquerSpots] = useState<string[]>([]);
   
   // Modal state
   const [selectedCard, setSelectedCard] = useState<CardData | null>(null);
@@ -53,45 +124,54 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      if (!currentUser) {
-        // Load local quizzes if not logged in
-        const saved = localStorage.getItem('trivia-quizzes');
-        if (saved) {
-          try {
-            const parsed = JSON.parse(saved);
-            if (parsed.length > 0) {
-              setQuizzes([DEFAULT_QUIZ, ...parsed]);
-              setSelectedQuizId(parsed[0].id);
-              return;
-            }
-          } catch (e) {
-            console.error('Failed to parse saved quizzes');
-          }
-        }
-        setQuizzes([DEFAULT_QUIZ]);
-        setSelectedQuizId(DEFAULT_QUIZ.id);
-      }
     });
     return () => unsubscribe();
   }, []);
 
-  // Fetch Firestore quizzes regardless of user
+  // Fetch Firestore quizzes regardless of user and merge with local
   useEffect(() => {
     const q = query(collection(db, 'quizzes'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const firestoreQuizzes: Quiz[] = snapshot.docs.map(doc => doc.data() as Quiz);
       
+      let localQuizzes: Quiz[] = [];
+      const saved = localStorage.getItem('trivia-quizzes');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) localQuizzes = parsed;
+        } catch (e) {
+          console.error('Failed to parse saved quizzes');
+        }
+      }
+
+      // Merge and deduplicate by ID (firestore takes precedence if same ID)
+      const uniqueQuizzesMap = new Map();
+      localQuizzes.forEach(q => uniqueQuizzesMap.set(q.id, q));
+      firestoreQuizzes.forEach(q => uniqueQuizzesMap.set(q.id, q));
+      const uniqueQuizzes = Array.from(uniqueQuizzesMap.values());
+      
       // Sort quizzes by course
-      firestoreQuizzes.sort((a, b) => {
+      uniqueQuizzes.sort((a, b) => {
         const courseA = a.course || 'Uncategorized';
         const courseB = b.course || 'Uncategorized';
         return courseA.localeCompare(courseB);
       });
 
-      const combined = [DEFAULT_QUIZ, ...firestoreQuizzes];
-      setQuizzes(combined);
+      setQuizzes([DEFAULT_QUIZ, ...uniqueQuizzes]);
     }, (error) => {
       console.error("Firestore onSnapshot error:", error);
+      
+      // Fallback: If Firestore fails entirely (e.g. offline), at least load local quizzes
+      let localQuizzes: Quiz[] = [];
+      const saved = localStorage.getItem('trivia-quizzes');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) localQuizzes = parsed;
+        } catch (e) {}
+      }
+      setQuizzes([DEFAULT_QUIZ, ...localQuizzes]);
     });
     return () => unsubscribe();
   }, []);
@@ -174,11 +254,8 @@ export default function App() {
       return;
     }
 
-    const newTeams: Team[] = [];
-    for (let i = 0; i < teamCount; i++) {
-      newTeams.push({ name: `Team ${i + 1}`, score: 0 });
-    }
-    setTeams(newTeams);
+    // Keep user's custom team names, just reset their scores
+    setTeams(prev => prev.map(t => ({ ...t, score: 0 })));
     setCurrentTeamIdx(0);
 
     // Shuffle and add unique IDs
@@ -189,8 +266,9 @@ export default function App() {
     })) as CardData[];
     
     setActiveQuestions(selectedWithIds);
+    setAnsweredIds([]);
     if (mode === 'conquer' && selectedWithIds.length > 0) {
-      setConquerTree(buildTree(selectedWithIds, true));
+      setConquerSpots(selectedWithIds.map(q => q.id));
     }
     setGameState('playing');
   };
@@ -252,80 +330,201 @@ export default function App() {
   const closeModalAndRemoveCard = () => {
     if (!selectedCard) return;
     
-    const updatedQuestions = activeQuestions.filter(q => q.id !== selectedCard.id);
-    setActiveQuestions(updatedQuestions);
+    const answeredQId = selectedCard.id;
+    const newAnsweredIds = [...answeredIds, answeredQId];
+    
+    if (mode === 'standard') {
+      let newActive = [...activeQuestions];
+      let newAnswered = [...newAnsweredIds];
+      
+      // If 5 answered, remove them to re-layout grid
+      if (newAnsweredIds.length > 0 && newAnsweredIds.length % 5 === 0) {
+        newActive = activeQuestions.filter(q => !newAnsweredIds.includes(q.id));
+        newAnswered = [];
+      }
+      
+      setActiveQuestions(newActive);
+      setAnsweredIds(newAnswered);
+      
+      if (newActive.length - newAnswered.length === 0) {
+        setTimeout(() => setGameState('gameover'), 500);
+      }
+    } else {
+      // Conquer Mode
+      setAnsweredIds(newAnsweredIds);
+      
+      const { spots: layout } = getHoneycombLayout(activeQuestions.length);
+      let newConquerSpots = [...conquerSpots];
+      
+      const spotsToConquer = layout.filter(s => newConquerSpots[s.index] === answeredQId);
+      
+      spotsToConquer.forEach(spot => {
+        let nearestNeighborId: string | null = null;
+        let minDistance = Infinity;
+        
+        layout.forEach(otherSpot => {
+          const ownerId = newConquerSpots[otherSpot.index];
+          if (ownerId !== answeredQId && !newAnsweredIds.includes(ownerId)) {
+            const dx = spot.cx - otherSpot.cx;
+            const dy = spot.cy - otherSpot.cy;
+            const dist = dx*dx + dy*dy;
+            if (dist < minDistance) {
+              minDistance = dist;
+              nearestNeighborId = ownerId;
+            }
+          }
+        });
+        
+        if (nearestNeighborId) {
+          newConquerSpots[spot.index] = nearestNeighborId;
+        }
+      });
+      
+      setConquerSpots(newConquerSpots);
+      
+      if (newAnsweredIds.length === activeQuestions.length) {
+        setTimeout(() => setGameState('gameover'), 500);
+      }
+    }
+    
     setSelectedCard(null);
     nextTurn();
-
-    if (updatedQuestions.length === 0) {
-      setTimeout(() => {
-        setGameState('gameover');
-      }, 500);
-    }
   };
 
-  const getCardColor = (id: string, isMystery?: boolean) => {
-    if (isMystery) return 'bg-slate-200 border-b-[6px] border-slate-400 text-slate-700 active:border-b-0 active:translate-y-[6px]';
-    const colors = [
-      'bg-red-500 border-b-[6px] border-red-700 text-white active:border-b-0 active:translate-y-[6px]',
-      'bg-blue-500 border-b-[6px] border-blue-700 text-white active:border-b-0 active:translate-y-[6px]',
-      'bg-yellow-400 border-b-[6px] border-yellow-600 text-slate-900 active:border-b-0 active:translate-y-[6px]',
-      'bg-green-500 border-b-[6px] border-green-700 text-white active:border-b-0 active:translate-y-[6px]',
+  const getCardColor = (id: string, isMystery?: boolean, randomizeAll: boolean = false) => {
+    // Extensive palette for secret mode to ensure high variety
+    const extendedColors = [
+      'bg-red-500', 'bg-blue-500', 'bg-yellow-400', 'bg-green-500', 
+      'bg-purple-500', 'bg-pink-500', 'bg-orange-500', 'bg-teal-500',
+      'bg-indigo-500', 'bg-lime-500', 'bg-cyan-500', 'bg-rose-500',
+      'bg-fuchsia-500', 'bg-emerald-500', 'bg-amber-500', 'bg-sky-500'
     ];
+    
+    // Core palette for standard mode (excluding purple which is reserved for wild)
+    const standardColors = [
+      'bg-red-500', 'bg-blue-500', 'bg-yellow-400', 'bg-green-500', 
+      'bg-pink-500', 'bg-orange-500', 'bg-teal-500', 'bg-cyan-500'
+    ];
+    
+    if (isMystery && randomizeAll) {
+      // In secret mode (hide), assign a random color from the extended palette based on ID
+       const hash = id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+       const baseColor = extendedColors[hash % extendedColors.length];
+       return `${baseColor} ${baseColor.includes('yellow') || baseColor.includes('lime') || baseColor.includes('amber') ? 'text-slate-900' : 'text-white'}`;
+    } else if (isMystery) {
+      return 'bg-slate-200 text-slate-700';
+    }
+
     const hash = id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    return colors[hash % colors.length];
+    const baseColor = standardColors[hash % standardColors.length];
+    return `${baseColor} ${baseColor.includes('yellow') ? 'text-slate-900' : 'text-white'}`;
   };
 
-  const renderConquerTree = (node: TreeNode, activeIds: Set<string>) => {
-    if (node.type === 'leaf') {
-      if (!activeIds.has(node.card.id)) return null;
-      return renderCard(node.card);
-    }
-    
-    const leftChild = renderConquerTree(node.left, activeIds);
-    const rightChild = renderConquerTree(node.right, activeIds);
-    
-    if (!leftChild && !rightChild) return null;
-    if (!leftChild) return rightChild;
-    if (!rightChild) return leftChild;
+  // renderCard is no longer needed
 
+  const renderHoneycomb = () => {
+    const N = activeQuestions.length;
+    if (N === 0) return null;
+    
+    const { aspectRatio, spots: layout } = getHoneycombLayout(N);
+    
+    // Group spots by territory (ownerId)
+    const groups = new Map<string, typeof layout>();
+    layout.forEach(spot => {
+      const ownerId = mode === 'conquer' ? conquerSpots[spot.index] : activeQuestions[spot.index]?.id;
+      if (!ownerId) return;
+      if (!groups.has(ownerId)) groups.set(ownerId, []);
+      groups.get(ownerId)!.push(spot);
+    });
+    
     return (
-      <div className={`flex flex-1 gap-2 md:gap-3 min-h-0 min-w-0 ${node.isRow ? 'flex-row' : 'flex-col'}`}>
-        {leftChild}
-        {rightChild}
+      <div className="absolute inset-2 md:inset-4 flex items-center justify-center pointer-events-none" style={{ containerType: 'size' }}>
+        <div 
+          className="relative pointer-events-none"
+          style={{
+            aspectRatio: `${aspectRatio}`,
+            width: '100%',
+            height: '100%',
+            maxHeight: '100%',
+            maxWidth: `calc(100cqh * ${aspectRatio})`,
+            containerType: 'inline-size'
+          }}
+        >
+          {Array.from(groups.entries()).map(([ownerId, spots]) => {
+            const q = activeQuestions.find(x => x.id === ownerId);
+            if (!q) return null;
+            const isAnswered = answeredIds.includes(ownerId);
+            
+            const sumCx = spots.reduce((sum, s) => sum + s.cx, 0);
+            const sumCy = spots.reduce((sum, s) => sum + s.cy, 0);
+            const avgCx = sumCx / spots.length;
+            const avgCy = sumCy / spots.length;
+            
+            const isHidden = displayStrategy === 'hide';
+            const isWildcard = q.type === 'w';
+            let colorClass = "";
+            let content = "";
+            if (isHidden) {
+              colorClass = getCardColor(q.id, true, true);
+              content = '❓'; 
+            } else if (isWildcard) {
+              colorClass = 'bg-purple-600 text-white';
+              content = 'WILD';
+            } else {
+              colorClass = getCardColor(q.id);
+              content = `${q.pts}`;
+            }
+            const hasDarkText = colorClass.includes('text-slate-900') || colorClass.includes('text-slate-700');
+            
+            return (
+              <div
+                key={`group-${ownerId}`}
+                onClick={() => handleCardClick(q)}
+                className="absolute inset-0 transition-opacity duration-700 ease-in-out cursor-pointer pointer-events-auto hover:brightness-110"
+                style={{
+                  opacity: isAnswered ? 0 : 1,
+                  zIndex: isAnswered ? 0 : 10,
+                  // Apply black border via drop shadow around the merged group
+                  filter: isAnswered ? 'none' : 'drop-shadow(2px 2px 0 #000) drop-shadow(-2px -2px 0 #000) drop-shadow(2px -2px 0 #000) drop-shadow(-2px 2px 0 #000) drop-shadow(0 4px 6px rgba(0,0,0,0.5))'
+                }}
+              >
+                {spots.map(spot => (
+                  <div
+                    key={`spot-${spot.index}`}
+                    className={`absolute transition-all duration-700 ease-in-out ${colorClass}`}
+                    style={{
+                      left: `${spot.left}%`,
+                      top: `${spot.top}%`,
+                      width: `${spot.width}%`,
+                      height: `${spot.height}%`,
+                      clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)',
+                      transform: 'scale(1.0)' // Exact size, no overlapping
+                    }}
+                  />
+                ))}
+                
+                <div 
+                  className="absolute flex items-center justify-center font-black text-center pointer-events-none"
+                  style={{
+                    left: `${avgCx}%`,
+                    top: `${avgCy}%`,
+                    transform: 'translate(-50%, -50%)',
+                    width: `${spots[0].width * 0.7}%`,
+                    height: `${spots[0].height * 0.7}%`,
+                    color: hasDarkText ? '#0f172a' : 'white',
+                    textShadow: hasDarkText ? 'none' : '0 2px 4px rgba(0,0,0,0.6)',
+                    fontSize: `calc(${spots[0].width}cqi * 0.25)`,
+                    lineHeight: '1.1',
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  {content}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
-    );
-  };
-
-  const renderCard = (q: CardData) => {
-    const isHidden = displayStrategy === 'hide';
-    const isWildcard = q.type === 'w';
-    
-    const baseClasses = "w-full h-full flex-1 flex items-center justify-center rounded-xl md:rounded-2xl text-4xl sm:text-5xl md:text-7xl font-black hover:opacity-90 transition-opacity";
-    
-    let colorClass = "";
-    let content = "";
-
-    if (isHidden) {
-      colorClass = getCardColor(q.id, true);
-      content = '❓'; 
-    } else if (isWildcard) {
-      colorClass = 'bg-purple-500 border-b-[6px] border-purple-700 text-white active:border-b-0 active:translate-y-[6px]';
-      content = 'WILD';
-    } else {
-      colorClass = getCardColor(q.id);
-      content = `${q.pts}`;
-    }
-    
-    return (
-      <button
-        key={q.id}
-        onClick={() => handleCardClick(q)}
-        className={`${baseClasses} ${colorClass}`}
-        style={{ minHeight: '90px', minWidth: '90px', textShadow: isHidden || (q.type !== 'w' && getCardColor(q.id).includes('yellow')) ? 'none' : '0 2px 4px rgba(0,0,0,0.3)' }}
-      >
-        {content}
-      </button>
     );
   };
 
@@ -415,16 +614,42 @@ export default function App() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div className="space-y-2">
-                <label className="block text-sm font-black text-slate-700 uppercase tracking-wider">Teams</label>
-                <input 
-                  type="number" 
-                  value={teamCount} 
-                  onChange={e => setTeamCount(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="w-full px-5 py-3 border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-lg bg-white"
-                  min="1"
-                />
+              <div className="space-y-4 md:col-span-2">
+                <div className="flex justify-between items-end">
+                  <label className="block text-sm font-black text-slate-700 uppercase tracking-wider">Teams</label>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => teams.length > 1 && setTeams(teams.slice(0, -1))}
+                      className="p-2 bg-slate-200 text-slate-600 rounded-lg hover:bg-slate-300 font-bold"
+                    >
+                      - Remove
+                    </button>
+                    <button 
+                      onClick={() => setTeams([...teams, { name: `Team ${teams.length + 1}`, score: 0 }])}
+                      className="p-2 bg-slate-200 text-slate-800 rounded-lg hover:bg-slate-300 font-bold"
+                    >
+                      + Add Team
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  {teams.map((t, i) => (
+                    <input 
+                      key={i}
+                      type="text" 
+                      value={t.name}
+                      onChange={(e) => {
+                        const newTeams = [...teams];
+                        newTeams[i].name = e.target.value;
+                        setTeams(newTeams);
+                      }}
+                      className="w-full px-4 py-3 border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-lg bg-white"
+                      placeholder={`Team ${i+1}`}
+                    />
+                  ))}
+                </div>
               </div>
+
               <div className="space-y-2">
                 <label className="block text-sm font-black text-slate-700 uppercase tracking-wider">Questions per Game</label>
                 <input 
@@ -470,47 +695,53 @@ export default function App() {
       )}
 
       {gameState === 'playing' && (
-        <div className="flex-1 flex flex-col p-2 md:p-4 animate-in fade-in duration-500 bg-slate-50">
-          <header className="flex flex-wrap gap-4 justify-center mb-4">
-            {teams.map((t, i) => (
-              <div 
-                key={i} 
-                className={`px-6 py-3 rounded-2xl font-black text-xl md:text-2xl transition-all duration-300 border-2 ${
-                  i === currentTeamIdx 
-                    ? 'bg-white text-slate-800 border-slate-300 scale-105 shadow-xl' 
-                    : 'bg-slate-200 text-slate-400 border-transparent'
-                }`}
+        <div className="flex-1 flex flex-col p-2 md:p-3 animate-in fade-in duration-500 bg-slate-50 h-screen overflow-hidden">
+          <header className="flex flex-wrap gap-2 items-center justify-between mb-2 w-full px-3 py-2 bg-slate-800 text-white rounded-2xl shadow-md shrink-0">
+            <div className="flex gap-2 items-center flex-1 overflow-x-auto pb-1 no-scrollbar">
+              {teams.map((t, i) => (
+                <div 
+                  key={i} 
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-xl font-black transition-all border-2 shrink-0 ${
+                    i === currentTeamIdx 
+                      ? 'bg-white text-slate-800 border-white shadow-md' 
+                      : 'bg-slate-700 text-slate-300 border-transparent'
+                  }`}
+                >
+                  <input 
+                    type="text"
+                    value={t.name}
+                    onChange={(e) => {
+                      const newTeams = [...teams];
+                      newTeams[i].name = e.target.value;
+                      setTeams(newTeams);
+                    }}
+                    className="bg-transparent outline-none w-24 sm:w-32 placeholder-slate-400 font-black text-lg md:text-xl"
+                    placeholder={`Team ${i+1}`}
+                  />
+                  <span className="text-lg md:text-xl">: {t.score}</span>
+                </div>
+              ))}
+            </div>
+            
+            <div className="flex items-center gap-2 shrink-0">
+              <button 
+                onClick={nextTurn}
+                className="bg-red-500 hover:bg-red-400 text-white border-b-[4px] border-red-700 font-black py-1.5 px-3 rounded-xl transition-all flex items-center gap-2 text-sm active:border-b-0 active:translate-y-[4px]"
               >
-                {t.name}: {t.score}
-              </div>
-            ))}
+                <Target className="w-4 h-4" /> Missed Board
+              </button>
+              
+              <button 
+                onClick={() => setGameState('setup')}
+                className="bg-slate-600 hover:bg-slate-500 text-white border-b-[4px] border-slate-800 font-black py-1.5 px-3 rounded-xl transition-all flex items-center gap-2 text-sm active:border-b-0 active:translate-y-[4px]"
+              >
+                Home
+              </button>
+            </div>
           </header>
 
-          <div className="flex-1 flex min-h-0 bg-slate-200 rounded-[2rem] p-2 md:p-3 shadow-inner border-2 border-slate-300 overflow-hidden relative">
-            {mode === 'standard' ? (
-              <div 
-                className="w-full h-full grid gap-1 md:gap-1.5"
-                style={{ 
-                  gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(activeQuestions.length))}, minmax(0, 1fr))`,
-                  gridTemplateRows: `repeat(${Math.ceil(activeQuestions.length / Math.ceil(Math.sqrt(activeQuestions.length)))}, minmax(0, 1fr))`
-                }}
-              >
-                {activeQuestions.map(renderCard)}
-              </div>
-            ) : (
-              <div className="w-full h-full flex">
-                {conquerTree && renderConquerTree(conquerTree, new Set(activeQuestions.map(q => q.id)))}
-              </div>
-            )}
-          </div>
-
-          <div className="mt-8 flex justify-center pb-4">
-            <button 
-              onClick={nextTurn}
-              className="bg-slate-300 hover:bg-slate-400 text-slate-700 border-b-[6px] border-slate-500 font-black py-4 px-10 rounded-2xl transition-all flex items-center gap-3 text-xl active:border-b-0 active:translate-y-[6px]"
-            >
-              <Target className="w-7 h-7" /> Missed the Board (Skip Turn)
-            </button>
+          <div className="flex-1 flex flex-col min-h-0 bg-slate-200 rounded-[2rem] p-2 md:p-3 shadow-inner border-2 border-slate-300 overflow-hidden relative">
+            {renderHoneycomb()}
           </div>
         </div>
       )}

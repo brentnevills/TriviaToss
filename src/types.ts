@@ -35,3 +35,17 @@ export type Team = {
 export type GameMode = 'standard' | 'conquer';
 export type DisplayStrategy = 'show' | 'hide';
 
+export type SavedGame = {
+  id: string;
+  name: string;
+  date: number;
+  quizId: string;
+  mode: GameMode;
+  teams: Team[];
+  currentTeamIdx: number;
+  activeQuestions: CardData[];
+  answeredIds: string[];
+  conquerSpots?: string[];
+  questionsSinceLayout?: number;
+};
+
