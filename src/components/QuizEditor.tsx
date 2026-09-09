@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Quiz, QuizItem } from '../types';
 import { Trash2, Plus, Save, ArrowLeft, HelpCircle, Zap } from 'lucide-react';
 
