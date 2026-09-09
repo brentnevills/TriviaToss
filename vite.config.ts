@@ -67,6 +67,9 @@ function aistudioMediaPlugin(): Plugin {
 export default defineConfig(() => {
   return {
     base: './',
+    build: {
+      outDir: 'docs',
+    },
     plugins: [react(), tailwindcss(), aistudioMediaPlugin()],
     resolve: {
       alias: {
