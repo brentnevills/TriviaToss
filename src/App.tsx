@@ -194,12 +194,17 @@ export default function App() {
     }
     setQuizzes(newQuizzes);
 
-    if (user) {
-      // Save to Firestore
-      const quizToSave = { ...quiz, userId: user.uid, authorName: quiz.authorName || user.displayName || user.email || 'Anonymous' };
+    // Always save to Firestore so it can be accessed across devices
+    try {
+      const quizToSave = { 
+        ...quiz, 
+        userId: user ? user.uid : (quiz.userId || 'anonymous'), 
+        authorName: quiz.authorName || user?.displayName || user?.email || 'Anonymous' 
+      };
       await setDoc(doc(db, 'quizzes', quizToSave.id), quizToSave);
-    } else {
-      // Save to LocalStorage
+    } catch (err) {
+      console.error("Failed to save to Firestore:", err);
+      // Fallback to local storage if offline
       localStorage.setItem('trivia-quizzes', JSON.stringify(newQuizzes.filter(q => q.id !== 'default-quiz')));
     }
   };
