@@ -67,10 +67,15 @@ function aistudioMediaPlugin(): Plugin {
 export default defineConfig(() => {
   return {
     base: './',
+    root: 'src',
+    build: {
+      outDir: '../',
+      emptyOutDir: false,
+    },
     plugins: [react(), tailwindcss(), aistudioMediaPlugin()],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(__dirname, './src'),
       },
     },
     server: {
