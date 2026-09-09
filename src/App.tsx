@@ -284,9 +284,9 @@ export default function App() {
        );
     }
     
-    // Auto-adjust question count to not exceed available cards
-    const actualCount = Math.min(questionCount, pool.length);
-    if (actualCount === 0) {
+    // If they request more cards than the pool has, repeat the pool cards to fill the board!
+    const actualCount = questionCount;
+    if (pool.length === 0) {
       alert("This quiz has no cards! Add some cards before playing.");
       return;
     }
@@ -295,12 +295,12 @@ export default function App() {
     setTeams(prev => prev.map(t => ({ ...t, score: 0 })));
     setCurrentTeamIdx(0);
 
-    // Shuffle and add unique IDs
+    // Shuffle and wrap to generate exact requested number of boxes
     const shuffled = pool.sort(() => 0.5 - Math.random());
-    const selectedWithIds = shuffled.slice(0, actualCount).map((q, i) => ({
-      ...q,
+    const selectedWithIds: CardData[] = Array.from({ length: actualCount }).map((_, i) => ({
+      ...shuffled[i % shuffled.length],
       id: `card-${i}-${Date.now()}`
-    })) as CardData[];
+    }));
     
     setActiveQuestions(selectedWithIds);
     setAnsweredIds([]);
