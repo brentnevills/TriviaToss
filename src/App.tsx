@@ -60,7 +60,7 @@ export default function App() {
           try {
             const parsed = JSON.parse(saved);
             if (parsed.length > 0) {
-              setQuizzes(parsed);
+              setQuizzes([DEFAULT_QUIZ, ...parsed]);
               setSelectedQuizId(parsed[0].id);
               return;
             }
@@ -83,6 +83,8 @@ export default function App() {
         const firestoreQuizzes: Quiz[] = snapshot.docs.map(doc => doc.data() as Quiz);
         const combined = [DEFAULT_QUIZ, ...firestoreQuizzes];
         setQuizzes(combined);
+      }, (error) => {
+        console.error("Firestore onSnapshot error:", error);
       });
       return () => unsubscribe();
     }
@@ -291,7 +293,7 @@ export default function App() {
     const isHidden = displayStrategy === 'hide';
     const isWildcard = q.type === 'w';
     
-    const baseClasses = "w-full h-full flex-1 flex items-center justify-center rounded-2xl md:rounded-[2rem] text-4xl sm:text-5xl md:text-7xl font-black hover:opacity-90 transition-opacity";
+    const baseClasses = "w-full h-full flex-1 flex items-center justify-center rounded-xl md:rounded-2xl text-4xl sm:text-5xl md:text-7xl font-black hover:opacity-90 transition-opacity";
     
     let colorClass = "";
     let content = "";
@@ -469,13 +471,13 @@ export default function App() {
             ))}
           </header>
 
-          <div className="flex-1 flex min-h-0 bg-slate-200 rounded-[2rem] p-3 md:p-4 shadow-inner border-2 border-slate-300 overflow-hidden relative">
+          <div className="flex-1 flex min-h-0 bg-slate-200 rounded-[2rem] p-2 md:p-3 shadow-inner border-2 border-slate-300 overflow-hidden relative">
             {mode === 'standard' ? (
               <div 
-                className="w-full h-full grid gap-3 md:gap-4"
+                className="w-full h-full grid gap-1 md:gap-1.5"
                 style={{ 
                   gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(activeQuestions.length))}, minmax(0, 1fr))`,
-                  gridAutoRows: '1fr'
+                  gridTemplateRows: `repeat(${Math.ceil(activeQuestions.length / Math.ceil(Math.sqrt(activeQuestions.length)))}, minmax(0, 1fr))`
                 }}
               >
                 {activeQuestions.map(renderCard)}
