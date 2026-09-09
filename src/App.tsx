@@ -506,8 +506,8 @@ export default function App() {
             return (
               <div
                 key={`group-${ownerId}`}
-                onClick={() => handleCardClick(q)}
-                className="absolute inset-0 transition-opacity duration-700 ease-in-out cursor-pointer pointer-events-auto hover:brightness-110"
+                onClick={() => !isAnswered && handleCardClick(q)}
+                className="absolute inset-0 transition-opacity duration-700 ease-in-out group pointer-events-none"
                 style={{
                   opacity: isAnswered ? 0 : 1,
                   zIndex: isAnswered ? 0 : 10,
@@ -518,7 +518,7 @@ export default function App() {
                 {spots.map(spot => (
                   <div
                     key={`spot-${spot.index}`}
-                    className={`absolute transition-all duration-700 ease-in-out ${colorClass}`}
+                    className={`absolute transition-all duration-700 ease-in-out ${colorClass} cursor-pointer pointer-events-auto group-hover:brightness-110`}
                     style={{
                       left: `${spot.left}%`,
                       top: `${spot.top}%`,
