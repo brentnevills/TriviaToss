@@ -42,6 +42,52 @@ export default function QuizEditor({ initialQuiz, onSave, onAutoSave, onCancel }
   useEffect(() => { localStorage.setItem('trivia-draft-wtext', wText); }, [wText]);
   useEffect(() => { localStorage.setItem('trivia-draft-wpts', wPts.toString()); }, [wPts]);
 
+  const [editIndex, setEditIndex] = useState<number | null>(null);
+  
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [aiCourse, setAiCourse] = useState('');
+  const [aiTopic, setAiTopic] = useState('');
+  const [aiCount, setAiCount] = useState(10);
+
+  const handleGenerateAI = async () => {
+    if (!aiCourse) return alert("Please enter a course code or name.");
+    if (!aiTopic) return alert("Please enter a topic.");
+    setIsGenerating(true);
+    try {
+      const res = await fetch('/api/generate-quiz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ course: aiCourse, topic: aiTopic, count: aiCount })
+      });
+      const data = await res.json();
+      if (res.ok && Array.isArray(data)) {
+        setQuiz({ ...quiz, bank: [...quiz.bank, ...data] });
+        setAiTopic('');
+      } else {
+        alert(data.error || "Failed to generate questions");
+      }
+    } catch (e) {
+      alert("Error calling generation API");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleEditClick = (idx: number, item: QuizItem) => {
+    setEditIndex(idx);
+    setNewItemType(item.type);
+    if (item.type === 'q') {
+      setQText(item.q);
+      setAText(item.a);
+      setQPts(item.pts);
+    } else {
+      setWAction(item.action);
+      setWText(item.text);
+      setWPts(item.pts);
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const handleAddItem = () => {
     let newItem: QuizItem;
     if (newItemType === 'q') {
@@ -58,7 +104,14 @@ export default function QuizEditor({ initialQuiz, onSave, onAutoSave, onCancel }
       newItem = { type: 'w', action: wAction, text: wText, pts: wPts };
     }
     
-    setQuiz({ ...quiz, bank: [...quiz.bank, newItem] });
+    if (editIndex !== null) {
+      const newBank = [...quiz.bank];
+      newBank[editIndex] = newItem;
+      setQuiz({ ...quiz, bank: newBank });
+      setEditIndex(null);
+    } else {
+      setQuiz({ ...quiz, bank: [...quiz.bank, newItem] });
+    }
     
     // Reset forms
     setQText('');
@@ -180,8 +233,39 @@ export default function QuizEditor({ initialQuiz, onSave, onAutoSave, onCancel }
             )}
             
             <button onClick={handleAddItem} className="mt-8 w-full bg-slate-800 hover:bg-slate-700 border-b-[6px] border-slate-950 active:border-b-0 active:translate-y-[6px] text-white font-black py-4 px-4 rounded-xl flex items-center justify-center gap-2 transition-all">
-              <Plus className="w-5 h-5" /> Add to Quiz
+              <Plus className="w-5 h-5" /> {editIndex !== null ? 'Update Card' : 'Add to Quiz'}
             </button>
+          </div>
+
+          <div className="bg-white p-8 rounded-[2rem] shadow-sm border-2 border-slate-200">
+            <h2 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-2">
+              <Zap className="w-6 h-6 text-yellow-500" /> AI Question Generator
+            </h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Ontario Course</label>
+                <input type="text" value={aiCourse} onChange={e => setAiCourse(e.target.value)} className="w-full px-4 py-3 bg-white border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-slate-800" placeholder="e.g. SNC1W" />
+              </div>
+              <div>
+                <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Topic</label>
+                <input type="text" value={aiTopic} onChange={e => setAiTopic(e.target.value)} className="w-full px-4 py-3 bg-white border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-slate-800" placeholder="e.g. Space Exploration" />
+              </div>
+              <div>
+                <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Count</label>
+                <input type="number" value={aiCount} onChange={e => setAiCount(Number(e.target.value))} className="w-full px-4 py-3 bg-white border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-slate-800" min="1" max="50" />
+              </div>
+              <button 
+                onClick={handleGenerateAI}
+                disabled={isGenerating}
+                className={`w-full font-black py-4 px-4 rounded-xl flex items-center justify-center gap-2 transition-all ${
+                  isGenerating 
+                    ? 'bg-slate-200 text-slate-400 border-b-[6px] border-slate-300 translate-y-[6px] border-b-0' 
+                    : 'bg-yellow-400 hover:bg-yellow-300 border-b-[6px] border-yellow-600 active:border-b-0 active:translate-y-[6px] text-slate-900'
+                }`}
+              >
+                {isGenerating ? 'Generating...' : 'Generate with Gemini'}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -207,7 +291,10 @@ export default function QuizEditor({ initialQuiz, onSave, onAutoSave, onCancel }
                   </div>
                   <div className="flex items-center gap-4 sm:justify-end">
                     <span className="font-black text-slate-300 text-xl whitespace-nowrap">{item.pts} pts</span>
-                    <button onClick={() => handleRemoveItem(idx)} className="p-3 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors flex-shrink-0 opacity-100 sm:opacity-0 group-hover:opacity-100">
+                    <button onClick={() => handleEditClick(idx, item)} className="p-3 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-colors flex-shrink-0 opacity-100 sm:opacity-0 group-hover:opacity-100" title="Edit">
+                      <Edit2 className="w-5 h-5" />
+                    </button>
+                    <button onClick={() => handleRemoveItem(idx)} className="p-3 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors flex-shrink-0 opacity-100 sm:opacity-0 group-hover:opacity-100" title="Delete">
                       <Trash2 className="w-5 h-5" />
                     </button>
                   </div>

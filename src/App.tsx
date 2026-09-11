@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { CardData, DisplayStrategy, GameMode, Team, Quiz } from './types';
 import defaultQuestions from './data/questions.json';
 import QuizEditor from './components/QuizEditor';
-import { Target, Play, Plus, Edit2, LogIn, LogOut, User as UserIcon } from 'lucide-react';
+import { Target, Play, Plus, Edit2, LogIn, LogOut, User as UserIcon, Zap } from 'lucide-react';
 import { loginWithGoogle, logout, db, auth } from './lib/firebase';
 import { collection, query, where, getDocs, doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { onAuthStateChanged, User } from 'firebase/auth';
@@ -24,7 +24,8 @@ const DEFAULT_QUIZ: Quiz = {
 };
 
 const getHoneycombLayout = (N: number) => {
-  const C = Math.ceil(Math.sqrt(N));
+  // Use a wider bias to fill horizontal space (e.g. 1.8 ratio)
+  const C = Math.ceil(Math.sqrt(N * 1.8));
   let coords = [];
   let itemsLeft = N;
   let isEven = true;
@@ -92,8 +93,8 @@ const getHoneycombLayout = (N: number) => {
 };
 
 export default function App() {
-  const [gameState, setGameState] = useState<'setup' | 'editing' | 'playing' | 'gameover'>(() => {
-    return (localStorage.getItem('trivia-game-state') as any) || 'setup';
+  const [gameState, setGameState] = useState<'home' | 'setup' | 'editing' | 'playing' | 'gameover'>(() => {
+    return (sessionStorage.getItem('trivia-game-state') as any) || 'home';
   });
   
   // Quizzes state
@@ -106,8 +107,8 @@ export default function App() {
     try { return saved ? JSON.parse(saved) : null; } catch { return null; }
   });
 
-  // Persist current state across refreshes
-  useEffect(() => { localStorage.setItem('trivia-game-state', gameState); }, [gameState]);
+  // Persist current state across refreshes (session for game state, local for draft data)
+  useEffect(() => { sessionStorage.setItem('trivia-game-state', gameState); }, [gameState]);
   useEffect(() => { localStorage.setItem('trivia-selected-quiz-id', selectedQuizId); }, [selectedQuizId]);
   useEffect(() => { 
     if (editingQuiz) localStorage.setItem('trivia-editing-quiz', JSON.stringify(editingQuiz));
@@ -137,12 +138,58 @@ export default function App() {
   // Auth State
   const [user, setUser] = useState<User | null>(null);
 
+  // AI Modal State
+  const [showAIModal, setShowAIModal] = useState(false);
+  const [aiCourse, setAiCourse] = useState('');
+  const [aiTopic, setAiTopic] = useState('');
+  const [aiCount, setAiCount] = useState(10);
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const handleGenerateAI = async () => {
+    if (!aiCourse) return alert("Please enter a course code or name.");
+    if (!aiTopic) return alert("Please enter a topic.");
+    setIsGenerating(true);
+    try {
+      const res = await fetch('/api/generate-quiz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ course: aiCourse, topic: aiTopic, count: aiCount })
+      });
+      const data = await res.json();
+      if (res.ok && Array.isArray(data)) {
+        const newQuiz: Quiz = {
+          id: `quiz-${Date.now()}`,
+          name: `${aiTopic} Trivia`,
+          course: aiCourse,
+          authorId: user?.uid || 'anonymous',
+          authorName: user?.displayName || 'AI System',
+          bank: data as CardData[],
+          createdAt: Date.now()
+        };
+        saveQuizzes(newQuiz);
+        setSelectedQuizId(newQuiz.id);
+        setAiTopic('');
+        setAiCourse('');
+        setShowAIModal(false);
+      } else {
+        alert(data.error || "Failed to generate questions");
+      }
+    } catch (e) {
+      alert("Error calling generation API");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
+      if (!currentUser) {
+        setGameState('home');
+      }
     });
     return () => unsubscribe();
-  }, []);
+  }, [gameState]);
 
   const [isQuizzesLoaded, setIsQuizzesLoaded] = useState(false);
 
@@ -570,6 +617,58 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans flex flex-col text-slate-900">
+      {gameState === 'home' && (
+        <div className="flex-1 flex flex-col items-center justify-center p-6 md:p-12 animate-in fade-in duration-500 text-center">
+          <div className="mb-8">
+            <h1 className="text-6xl md:text-8xl font-black tracking-tight flex justify-center mb-4" style={{ textShadow: '0 4px 0 rgba(0,0,0,0.1)' }}>
+              <span className="text-red-500">T</span>
+              <span className="text-blue-500">r</span>
+              <span className="text-yellow-400">i</span>
+              <span className="text-green-500">v</span>
+              <span className="text-red-500">i</span>
+              <span className="text-blue-500">a</span>
+              <span className="text-yellow-400">T</span>
+              <span className="text-green-500">o</span>
+              <span className="text-red-500">s</span>
+              <span className="text-blue-500">s</span>
+              <span className="text-yellow-400">!</span>
+            </h1>
+            <p className="text-xl md:text-2xl text-slate-600 font-bold max-w-2xl mx-auto">
+              The ultimate classroom trivia game.
+            </p>
+          </div>
+          
+          <div className="bg-white p-8 rounded-3xl shadow-xl border-2 border-slate-200 max-w-md w-full">
+            <Target className="w-16 h-16 text-blue-500 mx-auto mb-6" />
+            <h2 className="text-2xl font-black text-slate-800 mb-4">Teacher Access</h2>
+            <p className="text-slate-500 mb-8 font-medium">Log in to create question banks, customize teams, and launch games for your students.</p>
+            
+            {user ? (
+              <div className="space-y-4">
+                <div className="flex items-center justify-center gap-2 text-slate-600 font-bold bg-slate-50 p-4 rounded-xl border-2 border-slate-100">
+                  {user.photoURL ? (
+                    <img src={user.photoURL} alt="Profile" className="w-8 h-8 rounded-full border-2 border-slate-200" referrerPolicy="no-referrer" />
+                  ) : (
+                    <UserIcon className="w-5 h-5" />
+                  )}
+                  <span>Signed in as {user.displayName || 'Teacher'}</span>
+                </div>
+                <button onClick={() => setGameState('setup')} className="w-full flex items-center justify-center gap-3 bg-green-500 hover:bg-green-400 text-white border-b-[4px] border-green-700 active:border-b-0 active:translate-y-[4px] font-black py-4 px-6 rounded-xl transition-all shadow-sm text-lg">
+                  <Play className="w-6 h-6" /> Enter Dashboard
+                </button>
+                <button onClick={logout} className="w-full font-bold text-slate-400 hover:text-slate-600 transition-colors mt-2 py-2">
+                  Sign out
+                </button>
+              </div>
+            ) : (
+              <button onClick={loginWithGoogle} className="w-full flex items-center justify-center gap-3 bg-blue-500 hover:bg-blue-400 text-white border-b-[4px] border-blue-700 active:border-b-0 active:translate-y-[4px] font-black py-4 px-6 rounded-xl transition-all shadow-sm text-lg">
+                <LogIn className="w-6 h-6" /> Sign in with Google
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {gameState === 'setup' && (
         <div className="max-w-4xl w-full mx-auto p-6 md:p-12 flex-1 animate-in fade-in duration-500">
           <div className="flex flex-col md:flex-row md:items-center justify-between mb-10 gap-6">
@@ -615,6 +714,9 @@ export default function App() {
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
                 <label className="block text-sm font-black text-slate-700 uppercase tracking-wider">Select Quiz ({quizzes.length} available)</label>
                 <div className="flex gap-2 w-full sm:w-auto">
+                  <button onClick={() => setShowAIModal(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-yellow-400 hover:bg-yellow-300 text-yellow-900 border-b-[4px] border-yellow-600 rounded-xl font-black transition-all active:border-b-0 active:translate-y-[4px]">
+                    <Zap className="w-4 h-4" /> AI Generate
+                  </button>
                   <button onClick={handleEditQuiz} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-700 border-b-[4px] border-slate-300 rounded-xl font-black transition-all active:border-b-0 active:translate-y-[4px]">
                     <Edit2 className="w-4 h-4" /> Edit Selected
                   </button>
@@ -730,6 +832,69 @@ export default function App() {
             >
               <Play className="w-8 h-8 fill-current" /> PLAY NOW
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* AI Generate Modal overlay */}
+      {showAIModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl border-4 border-slate-200 animate-in zoom-in-95 duration-200">
+            <h2 className="text-2xl font-black text-slate-800 mb-6 flex items-center gap-2">
+              <Zap className="w-6 h-6 text-yellow-500 fill-current" /> AI Question Generator
+            </h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Ontario Course (Code or Name)</label>
+                <input 
+                  type="text" 
+                  value={aiCourse} 
+                  onChange={e => setAiCourse(e.target.value)} 
+                  className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-slate-800" 
+                  placeholder="e.g. SNC1W (Grade 9 Science)" 
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Topic</label>
+                <input 
+                  type="text" 
+                  value={aiTopic} 
+                  onChange={e => setAiTopic(e.target.value)} 
+                  className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-slate-800" 
+                  placeholder="e.g. Space Exploration" 
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Number of Questions</label>
+                <input 
+                  type="number" 
+                  value={aiCount} 
+                  onChange={e => setAiCount(Number(e.target.value))} 
+                  className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-slate-800" 
+                  min="1" max="50" 
+                />
+              </div>
+              
+              <div className="flex gap-3 pt-4">
+                <button 
+                  onClick={() => setShowAIModal(false)}
+                  className="flex-1 py-3 px-4 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleGenerateAI}
+                  disabled={isGenerating}
+                  className={`flex-1 font-black py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-all ${
+                    isGenerating 
+                      ? 'bg-slate-200 text-slate-400 border-b-[4px] border-slate-300 translate-y-[4px] border-b-0' 
+                      : 'bg-yellow-400 hover:bg-yellow-300 border-b-[4px] border-yellow-600 active:border-b-0 active:translate-y-[4px] text-slate-900'
+                  }`}
+                >
+                  {isGenerating ? 'Generating...' : 'Generate Bank'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
