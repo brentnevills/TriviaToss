@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react';
 import { CardData, DisplayStrategy, GameMode, Team, Quiz } from './types';
 import defaultQuestions from './data/questions.json';
 import QuizEditor from './components/QuizEditor';
-import { Target, Play, Plus, Edit2, LogIn, LogOut, User as UserIcon, Zap } from 'lucide-react';
+import { Target, Play, Plus, Edit2, LogIn, LogOut, User as UserIcon, Zap, Trash2 } from 'lucide-react';
 import { loginWithGoogle, logout, db, auth } from './lib/firebase';
-import { collection, query, where, getDocs, doc, setDoc, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, setDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
 import { onAuthStateChanged, User } from 'firebase/auth';
 
 export type TreeNode = {
@@ -93,9 +93,7 @@ const getHoneycombLayout = (N: number) => {
 };
 
 export default function App() {
-  const [gameState, setGameState] = useState<'home' | 'setup' | 'editing' | 'playing' | 'gameover'>(() => {
-    return (sessionStorage.getItem('trivia-game-state') as any) || 'home';
-  });
+  const [gameState, setGameState] = useState<'home' | 'setup' | 'editing' | 'playing' | 'gameover'>('home');
   
   // Quizzes state
   const [quizzes, setQuizzes] = useState<Quiz[]>([DEFAULT_QUIZ]);
@@ -108,7 +106,6 @@ export default function App() {
   });
 
   // Persist current state across refreshes (session for game state, local for draft data)
-  useEffect(() => { sessionStorage.setItem('trivia-game-state', gameState); }, [gameState]);
   useEffect(() => { localStorage.setItem('trivia-selected-quiz-id', selectedQuizId); }, [selectedQuizId]);
   useEffect(() => { 
     if (editingQuiz) localStorage.setItem('trivia-editing-quiz', JSON.stringify(editingQuiz));
@@ -134,6 +131,12 @@ export default function App() {
   // Modal state
   const [selectedCard, setSelectedCard] = useState<CardData | null>(null);
   const [showAnswer, setShowAnswer] = useState(false);
+
+  // UI States for renaming/deleting without window.prompt/confirm
+  const [renamingQuizId, setRenamingQuizId] = useState<string | null>(null);
+  const [renameInput, setRenameInput] = useState<string>('');
+  const [confirmDeleteQuizId, setConfirmDeleteQuizId] = useState<string | null>(null);
+  const [confirmDeleteCardIdx, setConfirmDeleteCardIdx] = useState<number | null>(null);
 
   // Auth State
   const [user, setUser] = useState<User | null>(null);
@@ -184,12 +187,11 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      if (!currentUser) {
-        setGameState('home');
-      }
+      // Removed the automatic redirection so we always start at 'home' when the page loads, 
+      // regardless of whether we are logged in or out.
     });
     return () => unsubscribe();
-  }, [gameState]);
+  }, []);
 
   const [isQuizzesLoaded, setIsQuizzesLoaded] = useState(false);
 
@@ -274,6 +276,30 @@ export default function App() {
       await setDoc(doc(db, 'quizzes', quizToSave.id), quizToSave);
     } catch (err) {
       console.error("Failed to save to Firestore:", err);
+    }
+  };
+
+  const deleteQuiz = async (quizId: string) => {
+    if (quizId === 'default-quiz') {
+      alert("Cannot delete the default quiz.");
+      return;
+    }
+    
+    // Optimistic update
+    const newQuizzes = quizzes.filter(q => q.id !== quizId);
+    setQuizzes(newQuizzes);
+    if (selectedQuizId === quizId) {
+      setSelectedQuizId(newQuizzes.length > 0 ? newQuizzes[0].id : 'default-quiz');
+    }
+
+    // Save to local
+    localStorage.setItem('trivia-quizzes', JSON.stringify(newQuizzes.filter(q => q.id !== 'default-quiz')));
+
+    // Delete from Firestore
+    try {
+      await deleteDoc(doc(db, 'quizzes', quizId));
+    } catch (err) {
+      console.error("Failed to delete from Firestore:", err);
     }
   };
 
@@ -715,7 +741,7 @@ export default function App() {
                 <label className="block text-sm font-black text-slate-700 uppercase tracking-wider">Select Quiz ({quizzes.length} available)</label>
                 <div className="flex gap-2 w-full sm:w-auto">
                   <button onClick={() => setShowAIModal(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-yellow-400 hover:bg-yellow-300 text-yellow-900 border-b-[4px] border-yellow-600 rounded-xl font-black transition-all active:border-b-0 active:translate-y-[4px]">
-                    <Zap className="w-4 h-4" /> AI Generate
+                    <Zap className="w-4 h-4" /> Generate
                   </button>
                   <button onClick={handleEditQuiz} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-700 border-b-[4px] border-slate-300 rounded-xl font-black transition-all active:border-b-0 active:translate-y-[4px]">
                     <Edit2 className="w-4 h-4" /> Edit Selected
@@ -741,9 +767,159 @@ export default function App() {
                   </button>
                 ))}
               </div>
+
+              {/* Selected Quiz Preview */}
+              {selectedQuizId && quizzes.find(q => q.id === selectedQuizId) && (
+                <div className="mt-6 border-t-2 border-slate-200 pt-6">
+                  <div className="flex justify-between items-center mb-4">
+                    {renamingQuizId === selectedQuizId ? (
+                      <div className="flex items-center gap-2 flex-1 mr-4">
+                        <input 
+                          autoFocus
+                          type="text" 
+                          value={renameInput} 
+                          onChange={(e) => setRenameInput(e.target.value)} 
+                          className="flex-1 px-3 py-1.5 text-sm font-black text-slate-800 bg-white border-2 border-slate-300 rounded-lg outline-none focus:border-blue-500"
+                        />
+                        <button 
+                          onClick={() => {
+                            const q = quizzes.find(quiz => quiz.id === selectedQuizId);
+                            if (q && renameInput.trim()) {
+                              saveQuizzes({...q, name: renameInput.trim()});
+                            }
+                            setRenamingQuizId(null);
+                          }}
+                          className="px-3 py-1.5 text-xs font-bold text-white bg-green-500 hover:bg-green-600 rounded-lg"
+                        >
+                          Save
+                        </button>
+                        <button 
+                          onClick={() => setRenamingQuizId(null)}
+                          className="px-3 py-1.5 text-xs font-bold text-slate-600 bg-slate-200 hover:bg-slate-300 rounded-lg"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <h3 className="text-sm font-black text-slate-700 uppercase tracking-wider">Cards in {quizzes.find(q => q.id === selectedQuizId)?.name}</h3>
+                        {selectedQuizId !== 'default-quiz' && (
+                          <div className="flex items-center gap-2">
+                            <button 
+                              onClick={() => {
+                                const q = quizzes.find(quiz => quiz.id === selectedQuizId);
+                                if (q) {
+                                  setRenameInput(q.name);
+                                  setRenamingQuizId(selectedQuizId);
+                                }
+                              }}
+                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" /> Rename
+                            </button>
+                            {confirmDeleteQuizId === selectedQuizId ? (
+                              <div className="flex items-center gap-1">
+                                <span className="text-xs font-bold text-red-500 mr-1">Sure?</span>
+                                <button 
+                                  onClick={() => {
+                                    deleteQuiz(selectedQuizId);
+                                    setConfirmDeleteQuizId(null);
+                                  }}
+                                  className="px-2 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg"
+                                >
+                                  Yes
+                                </button>
+                                <button 
+                                  onClick={() => setConfirmDeleteQuizId(null)}
+                                  className="px-2 py-1.5 text-xs font-bold text-slate-600 bg-slate-200 hover:bg-slate-300 rounded-lg"
+                                >
+                                  No
+                                </button>
+                              </div>
+                            ) : (
+                              <button 
+                                onClick={() => setConfirmDeleteQuizId(selectedQuizId)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" /> Delete
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-2 max-h-64 overflow-y-auto pr-2">
+                    {quizzes.find(q => q.id === selectedQuizId)?.bank.map((card, idx) => (
+                       <div key={idx} className="bg-white border-2 border-slate-200 rounded-xl p-3 flex justify-between items-center group hover:border-slate-300">
+                         <div className="flex-1 pr-4">
+                           {card.type === 'q' ? (
+                              <>
+                                <p className="font-bold text-slate-800 text-sm line-clamp-1">{card.q}</p>
+                                <p className="text-xs text-slate-500 line-clamp-1">A: {card.a}</p>
+                              </>
+                           ) : (
+                              <p className="font-bold text-purple-600 text-sm line-clamp-2">Wildcard: {card.text}</p>
+                           )}
+                         </div>
+                         <div className="flex items-center gap-2 shrink-0">
+                            <span className="font-black text-slate-400 bg-slate-100 px-2 py-1 rounded-md text-xs">{card.pts} pts</span>
+                            <button 
+                              onClick={() => {
+                                const q = quizzes.find(quiz => quiz.id === selectedQuizId);
+                                if (!q) return;
+                                setEditingQuiz(q);
+                                setGameState('editing');
+                              }} 
+                              className="p-2 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg sm:opacity-0 group-hover:opacity-100 transition-all"
+                              title="Edit Quiz"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            {confirmDeleteCardIdx === idx ? (
+                              <div className="flex items-center gap-1 sm:opacity-0 group-hover:opacity-100 transition-all">
+                                <button 
+                                  onClick={() => {
+                                    const q = quizzes.find(quiz => quiz.id === selectedQuizId);
+                                    if (!q) return;
+                                    const updated = {...q, bank: q.bank.filter((_, i) => i !== idx)};
+                                    saveQuizzes(updated);
+                                    setConfirmDeleteCardIdx(null);
+                                  }} 
+                                  className="px-2 py-1 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-md"
+                                >
+                                  Yes
+                                </button>
+                                <button 
+                                  onClick={() => setConfirmDeleteCardIdx(null)}
+                                  className="px-2 py-1 text-xs font-bold text-slate-600 bg-slate-200 hover:bg-slate-300 rounded-md"
+                                >
+                                  No
+                                </button>
+                              </div>
+                            ) : (
+                              <button 
+                                onClick={() => setConfirmDeleteCardIdx(idx)} 
+                                className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg sm:opacity-0 group-hover:opacity-100 transition-all"
+                                title="Delete Card"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                         </div>
+                       </div>
+                    ))}
+                    {quizzes.find(q => q.id === selectedQuizId)?.bank.length === 0 && (
+                      <p className="text-slate-500 italic text-sm py-4">No cards in this bank. Use the AI generator or Edit Quiz to add some!</p>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="border-t-2 border-slate-200 pt-8 mt-4">
+              <h2 className="text-2xl font-black text-slate-800 mb-6">Game Setup</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div className="space-y-4 md:col-span-2">
                 <div className="flex justify-between items-end">
                   <label className="block text-sm font-black text-slate-700 uppercase tracking-wider">Teams</label>
@@ -825,6 +1001,7 @@ export default function App() {
               </div>
 
             </div>
+            </div>
 
             <button 
               onClick={startGame}
@@ -841,7 +1018,7 @@ export default function App() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl border-4 border-slate-200 animate-in zoom-in-95 duration-200">
             <h2 className="text-2xl font-black text-slate-800 mb-6 flex items-center gap-2">
-              <Zap className="w-6 h-6 text-yellow-500 fill-current" /> AI Question Generator
+              <Zap className="w-6 h-6 text-yellow-500 fill-current" /> Question Generator
             </h2>
             <div className="space-y-4">
               <div>

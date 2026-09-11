@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Quiz, QuizItem } from '../types';
-import { Trash2, Plus, Save, ArrowLeft, HelpCircle, Zap } from 'lucide-react';
+import { Trash2, Plus, Save, ArrowLeft, HelpCircle, Zap, Edit2 } from 'lucide-react';
 
 type Props = {
   initialQuiz: Quiz;
@@ -239,7 +239,7 @@ export default function QuizEditor({ initialQuiz, onSave, onAutoSave, onCancel }
 
           <div className="bg-white p-8 rounded-[2rem] shadow-sm border-2 border-slate-200">
             <h2 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-2">
-              <Zap className="w-6 h-6 text-yellow-500" /> AI Question Generator
+              <Zap className="w-6 h-6 text-yellow-500" /> Question Generator
             </h2>
             <div className="space-y-4">
               <div>
