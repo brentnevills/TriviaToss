@@ -142,49 +142,6 @@ export default function App() {
   // Auth State
   const [user, setUser] = useState<User | null>(null);
 
-  // AI Modal State
-  const [showAIModal, setShowAIModal] = useState(false);
-  const [aiCourse, setAiCourse] = useState('');
-  const [aiTopic, setAiTopic] = useState('');
-  const [aiCount, setAiCount] = useState(10);
-  const [isGenerating, setIsGenerating] = useState(false);
-
-  const handleGenerateAI = async () => {
-    if (!aiCourse) return alert("Please enter a course code or name.");
-    if (!aiTopic) return alert("Please enter a topic.");
-    setIsGenerating(true);
-    try {
-      const res = await fetch('/api/generate-quiz', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ course: aiCourse, topic: aiTopic, count: aiCount })
-      });
-      const data = await res.json();
-      if (res.ok && Array.isArray(data)) {
-        const newQuiz: Quiz = {
-          id: `quiz-${Date.now()}`,
-          name: `${aiTopic} Trivia`,
-          course: aiCourse,
-          userId: user ? user.uid : 'anonymous',
-          authorName: user ? (user.displayName || user.email || 'Anonymous') : 'AI System',
-          bank: data as CardData[],
-        };
-        saveQuizzes(newQuiz);
-        setQuizTab('personal');
-        setSelectedQuizId(newQuiz.id);
-        setAiTopic('');
-        setAiCourse('');
-        setShowAIModal(false);
-      } else {
-        alert(data.error || "Failed to generate questions");
-      }
-    } catch (e) {
-      alert("Error calling generation API");
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
@@ -773,9 +730,6 @@ export default function App() {
                   </button>
                 </div>
                 <div className="flex gap-2 w-full sm:w-auto">
-                  <button onClick={() => setShowAIModal(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-yellow-400 hover:bg-yellow-300 text-yellow-900 border-b-[4px] border-yellow-600 rounded-xl font-black transition-all active:border-b-0 active:translate-y-[4px]">
-                    <Zap className="w-4 h-4" /> Generate
-                  </button>
                   {quizTab === 'personal' && (
                     <button onClick={handleEditQuiz} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-700 border-b-[4px] border-slate-300 rounded-xl font-black transition-all active:border-b-0 active:translate-y-[4px]">
                       <Edit2 className="w-4 h-4" /> Edit Selected
@@ -1069,69 +1023,6 @@ export default function App() {
             >
               <Play className="w-8 h-8 fill-current" /> PLAY NOW
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* AI Generate Modal overlay */}
-      {showAIModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl border-4 border-slate-200 animate-in zoom-in-95 duration-200">
-            <h2 className="text-2xl font-black text-slate-800 mb-6 flex items-center gap-2">
-              <Zap className="w-6 h-6 text-yellow-500 fill-current" /> Question Generator
-            </h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Ontario Course (Code or Name)</label>
-                <input 
-                  type="text" 
-                  value={aiCourse} 
-                  onChange={e => setAiCourse(e.target.value)} 
-                  className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-slate-800" 
-                  placeholder="e.g. SNC1W (Grade 9 Science)" 
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Topic</label>
-                <input 
-                  type="text" 
-                  value={aiTopic} 
-                  onChange={e => setAiTopic(e.target.value)} 
-                  className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-slate-800" 
-                  placeholder="e.g. Space Exploration" 
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Number of Questions</label>
-                <input 
-                  type="number" 
-                  value={aiCount} 
-                  onChange={e => setAiCount(Number(e.target.value))} 
-                  className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-slate-800" 
-                  min="1" max="50" 
-                />
-              </div>
-              
-              <div className="flex gap-3 pt-4">
-                <button 
-                  onClick={() => setShowAIModal(false)}
-                  className="flex-1 py-3 px-4 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={handleGenerateAI}
-                  disabled={isGenerating}
-                  className={`flex-1 font-black py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-all ${
-                    isGenerating 
-                      ? 'bg-slate-200 text-slate-400 border-b-[4px] border-slate-300 translate-y-[4px] border-b-0' 
-                      : 'bg-yellow-400 hover:bg-yellow-300 border-b-[4px] border-yellow-600 active:border-b-0 active:translate-y-[4px] text-slate-900'
-                  }`}
-                >
-                  {isGenerating ? 'Generating...' : 'Generate Bank'}
-                </button>
-              </div>
-            </div>
           </div>
         </div>
       )}
