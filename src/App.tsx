@@ -97,6 +97,7 @@ export default function App() {
   
   // Quizzes state
   const [quizzes, setQuizzes] = useState<Quiz[]>([DEFAULT_QUIZ]);
+  const [quizTab, setQuizTab] = useState<'personal' | 'global'>('personal');
   const [selectedQuizId, setSelectedQuizId] = useState<string>(() => {
     return localStorage.getItem('trivia-selected-quiz-id') || DEFAULT_QUIZ.id;
   });
@@ -164,12 +165,12 @@ export default function App() {
           id: `quiz-${Date.now()}`,
           name: `${aiTopic} Trivia`,
           course: aiCourse,
-          authorId: user?.uid || 'anonymous',
-          authorName: user?.displayName || 'AI System',
+          userId: user ? user.uid : 'anonymous',
+          authorName: user ? (user.displayName || user.email || 'Anonymous') : 'AI System',
           bank: data as CardData[],
-          createdAt: Date.now()
         };
         saveQuizzes(newQuiz);
+        setQuizTab('personal');
         setSelectedQuizId(newQuiz.id);
         setAiTopic('');
         setAiCourse('');
@@ -270,8 +271,8 @@ export default function App() {
     try {
       const quizToSave = { 
         ...quiz, 
-        userId: user ? user.uid : (quiz.userId || 'anonymous'), 
-        authorName: quiz.authorName || user?.displayName || user?.email || 'Anonymous' 
+        userId: quiz.userId || (user ? user.uid : 'anonymous'), 
+        authorName: quiz.authorName || (user ? (user.displayName || user.email) : 'Anonymous')
       };
       await setDoc(doc(db, 'quizzes', quizToSave.id), quizToSave);
     } catch (err) {
@@ -309,10 +310,29 @@ export default function App() {
       name: 'New Quiz',
       course: '',
       authorName: user?.displayName || user?.email || '',
+      userId: user ? user.uid : 'anonymous',
       bank: []
     };
     setEditingQuiz(newQuiz);
+    setQuizTab('personal');
     setGameState('editing');
+  };
+
+  const handleCloneQuiz = async (quiz: Quiz) => {
+    if (!user) {
+      alert("Please log in to add quizzes to your personal bank.");
+      return;
+    }
+    const clonedQuiz: Quiz = {
+      ...quiz,
+      id: `quiz-${Date.now()}`,
+      name: `${quiz.name} (Copy)`,
+      userId: user.uid,
+      authorName: user.displayName || user.email || 'Anonymous'
+    };
+    await saveQuizzes(clonedQuiz);
+    setQuizTab('personal');
+    setSelectedQuizId(clonedQuiz.id);
   };
 
   const handleEditQuiz = () => {
@@ -738,21 +758,43 @@ export default function App() {
             
             <div className="bg-slate-100 p-6 rounded-2xl border-2 border-slate-200 mb-6">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
-                <label className="block text-sm font-black text-slate-700 uppercase tracking-wider">Select Quiz ({quizzes.length} available)</label>
+                <div className="flex border-2 border-slate-200 bg-slate-200 rounded-xl p-1">
+                  <button 
+                    onClick={() => setQuizTab('personal')}
+                    className={`px-4 py-2 text-sm font-black rounded-lg transition-all ${quizTab === 'personal' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  >
+                    My Bank
+                  </button>
+                  <button 
+                    onClick={() => setQuizTab('global')}
+                    className={`px-4 py-2 text-sm font-black rounded-lg transition-all ${quizTab === 'global' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  >
+                    Global Bank
+                  </button>
+                </div>
                 <div className="flex gap-2 w-full sm:w-auto">
                   <button onClick={() => setShowAIModal(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-yellow-400 hover:bg-yellow-300 text-yellow-900 border-b-[4px] border-yellow-600 rounded-xl font-black transition-all active:border-b-0 active:translate-y-[4px]">
                     <Zap className="w-4 h-4" /> Generate
                   </button>
-                  <button onClick={handleEditQuiz} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-700 border-b-[4px] border-slate-300 rounded-xl font-black transition-all active:border-b-0 active:translate-y-[4px]">
-                    <Edit2 className="w-4 h-4" /> Edit Selected
-                  </button>
+                  {quizTab === 'personal' && (
+                    <button onClick={handleEditQuiz} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-700 border-b-[4px] border-slate-300 rounded-xl font-black transition-all active:border-b-0 active:translate-y-[4px]">
+                      <Edit2 className="w-4 h-4" /> Edit Selected
+                    </button>
+                  )}
                   <button onClick={handleCreateQuiz} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-500 hover:bg-blue-400 text-white border-b-[4px] border-blue-700 rounded-xl font-black transition-all active:border-b-0 active:translate-y-[4px]">
                     <Plus className="w-4 h-4" /> New Quiz
                   </button>
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-96 overflow-y-auto p-1">
-                {quizzes.map(q => (
+                {quizzes.filter(q => {
+                  if (quizTab === 'personal') {
+                    if (!user) return q.id === 'default-quiz' || q.userId === 'anonymous';
+                    return q.userId === user.uid || q.id === 'default-quiz';
+                  } else {
+                    return true;
+                  }
+                }).map(q => (
                   <button 
                     key={q.id}
                     onClick={() => setSelectedQuizId(q.id)}
@@ -805,43 +847,57 @@ export default function App() {
                         <h3 className="text-sm font-black text-slate-700 uppercase tracking-wider">Cards in {quizzes.find(q => q.id === selectedQuizId)?.name}</h3>
                         {selectedQuizId !== 'default-quiz' && (
                           <div className="flex items-center gap-2">
-                            <button 
-                              onClick={() => {
-                                const q = quizzes.find(quiz => quiz.id === selectedQuizId);
-                                if (q) {
-                                  setRenameInput(q.name);
-                                  setRenamingQuizId(selectedQuizId);
-                                }
-                              }}
-                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" /> Rename
-                            </button>
-                            {confirmDeleteQuizId === selectedQuizId ? (
-                              <div className="flex items-center gap-1">
-                                <span className="text-xs font-bold text-red-500 mr-1">Sure?</span>
+                            {(!user && quizzes.find(q => q.id === selectedQuizId)?.userId === 'anonymous') || (user && quizzes.find(q => q.id === selectedQuizId)?.userId === user.uid) ? (
+                              <>
                                 <button 
                                   onClick={() => {
-                                    deleteQuiz(selectedQuizId);
-                                    setConfirmDeleteQuizId(null);
+                                    const q = quizzes.find(quiz => quiz.id === selectedQuizId);
+                                    if (q) {
+                                      setRenameInput(q.name);
+                                      setRenamingQuizId(selectedQuizId);
+                                    }
                                   }}
-                                  className="px-2 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg"
+                                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
                                 >
-                                  Yes
+                                  <Edit2 className="w-3.5 h-3.5" /> Rename
                                 </button>
-                                <button 
-                                  onClick={() => setConfirmDeleteQuizId(null)}
-                                  className="px-2 py-1.5 text-xs font-bold text-slate-600 bg-slate-200 hover:bg-slate-300 rounded-lg"
-                                >
-                                  No
-                                </button>
-                              </div>
+                                {confirmDeleteQuizId === selectedQuizId ? (
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-xs font-bold text-red-500 mr-1">Sure?</span>
+                                    <button 
+                                      onClick={() => {
+                                        deleteQuiz(selectedQuizId);
+                                        setConfirmDeleteQuizId(null);
+                                      }}
+                                      className="px-2 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg"
+                                    >
+                                      Yes
+                                    </button>
+                                    <button 
+                                      onClick={() => setConfirmDeleteQuizId(null)}
+                                      className="px-2 py-1.5 text-xs font-bold text-slate-600 bg-slate-200 hover:bg-slate-300 rounded-lg"
+                                    >
+                                      No
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button 
+                                    onClick={() => setConfirmDeleteQuizId(selectedQuizId)}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" /> Delete
+                                  </button>
+                                )}
+                              </>
                             ) : (
                               <button 
-                                onClick={() => setConfirmDeleteQuizId(selectedQuizId)}
-                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+                                onClick={() => {
+                                  const q = quizzes.find(quiz => quiz.id === selectedQuizId);
+                                  if (q) handleCloneQuiz(q);
+                                }}
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors shadow-sm"
                               >
-                                <Trash2 className="w-3.5 h-3.5" /> Delete
+                                <Plus className="w-3.5 h-3.5" /> Add to My Bank
                               </button>
                             )}
                           </div>
@@ -864,47 +920,51 @@ export default function App() {
                          </div>
                          <div className="flex items-center gap-2 shrink-0">
                             <span className="font-black text-slate-400 bg-slate-100 px-2 py-1 rounded-md text-xs">{card.pts} pts</span>
-                            <button 
-                              onClick={() => {
-                                const q = quizzes.find(quiz => quiz.id === selectedQuizId);
-                                if (!q) return;
-                                setEditingQuiz(q);
-                                setGameState('editing');
-                              }} 
-                              className="p-2 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg sm:opacity-0 group-hover:opacity-100 transition-all"
-                              title="Edit Quiz"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            {confirmDeleteCardIdx === idx ? (
-                              <div className="flex items-center gap-1 sm:opacity-0 group-hover:opacity-100 transition-all">
+                            {((!user && quizzes.find(q => q.id === selectedQuizId)?.userId === 'anonymous') || (user && quizzes.find(q => q.id === selectedQuizId)?.userId === user.uid)) && (
+                              <>
                                 <button 
                                   onClick={() => {
                                     const q = quizzes.find(quiz => quiz.id === selectedQuizId);
                                     if (!q) return;
-                                    const updated = {...q, bank: q.bank.filter((_, i) => i !== idx)};
-                                    saveQuizzes(updated);
-                                    setConfirmDeleteCardIdx(null);
+                                    setEditingQuiz(q);
+                                    setGameState('editing');
                                   }} 
-                                  className="px-2 py-1 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-md"
+                                  className="p-2 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg sm:opacity-0 group-hover:opacity-100 transition-all"
+                                  title="Edit Quiz"
                                 >
-                                  Yes
+                                  <Edit2 className="w-4 h-4" />
                                 </button>
-                                <button 
-                                  onClick={() => setConfirmDeleteCardIdx(null)}
-                                  className="px-2 py-1 text-xs font-bold text-slate-600 bg-slate-200 hover:bg-slate-300 rounded-md"
-                                >
-                                  No
-                                </button>
-                              </div>
-                            ) : (
-                              <button 
-                                onClick={() => setConfirmDeleteCardIdx(idx)} 
-                                className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg sm:opacity-0 group-hover:opacity-100 transition-all"
-                                title="Delete Card"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                                {confirmDeleteCardIdx === idx ? (
+                                  <div className="flex items-center gap-1 sm:opacity-0 group-hover:opacity-100 transition-all">
+                                    <button 
+                                      onClick={() => {
+                                        const q = quizzes.find(quiz => quiz.id === selectedQuizId);
+                                        if (!q) return;
+                                        const updated = {...q, bank: q.bank.filter((_, i) => i !== idx)};
+                                        saveQuizzes(updated);
+                                        setConfirmDeleteCardIdx(null);
+                                      }} 
+                                      className="px-2 py-1 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-md"
+                                    >
+                                      Yes
+                                    </button>
+                                    <button 
+                                      onClick={() => setConfirmDeleteCardIdx(null)}
+                                      className="px-2 py-1 text-xs font-bold text-slate-600 bg-slate-200 hover:bg-slate-300 rounded-md"
+                                    >
+                                      No
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button 
+                                    onClick={() => setConfirmDeleteCardIdx(idx)} 
+                                    className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg sm:opacity-0 group-hover:opacity-100 transition-all"
+                                    title="Delete Card"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </>
                             )}
                          </div>
                        </div>
