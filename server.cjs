@@ -37,26 +37,43 @@ async function startServer() {
       if (!process.env.GEMINI_API_KEY) {
         return res.status(500).json({ error: "GEMINI_API_KEY environment variable is required" });
       }
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: `Generate a trivia quiz about "${topic}" specifically aligned with the Ontario school curriculum for the course "${course}". Create exactly ${count} questions. Make sure the difficulty, terminology, and concepts are strictly appropriate for Ontario students taking this specific course.`,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: import_genai.Type.ARRAY,
-            items: {
-              type: import_genai.Type.OBJECT,
-              properties: {
-                q: { type: import_genai.Type.STRING, description: "The trivia question" },
-                a: { type: import_genai.Type.STRING, description: "The answer to the question" },
-                pts: { type: import_genai.Type.INTEGER, description: "Points for this question (e.g. 100, 200, 300, 400)" }
-              },
-              required: ["q", "a", "pts"]
+      let response;
+      let retries = 3;
+      let delay = 1e3;
+      while (retries > 0) {
+        try {
+          response = await ai.models.generateContent({
+            model: "gemini-3.6-flash",
+            contents: `Generate a trivia quiz about "${topic}" specifically aligned with the Ontario school curriculum for the course "${course}". Create exactly ${count} questions. Make sure the difficulty, terminology, and concepts are strictly appropriate for Ontario students taking this specific course.`,
+            config: {
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: import_genai.Type.ARRAY,
+                items: {
+                  type: import_genai.Type.OBJECT,
+                  properties: {
+                    q: { type: import_genai.Type.STRING, description: "The trivia question" },
+                    a: { type: import_genai.Type.STRING, description: "The answer to the question" },
+                    pts: { type: import_genai.Type.INTEGER, description: "Points for this question (e.g. 100, 200, 300, 400)" }
+                  },
+                  required: ["q", "a", "pts"]
+                }
+              }
             }
+          });
+          break;
+        } catch (e) {
+          retries--;
+          if (retries === 0 || e.status !== 503) {
+            throw e;
           }
+          console.log(`Gemini API high demand (503). Retrying in ${delay}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          delay *= 2;
         }
-      });
-      const data = JSON.parse(response.text || "[]");
+      }
+      const rawData = JSON.parse(response.text || "[]");
+      const data = rawData.map((item) => ({ ...item, type: "q" }));
       res.json(data);
     } catch (error) {
       console.error("Gemini Error:", error);
