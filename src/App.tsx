@@ -147,21 +147,19 @@ export default function App() {
   const [aiCourse, setAiCourse] = useState('');
   const [aiTopic, setAiTopic] = useState('');
   const [aiCount, setAiCount] = useState(10);
-  const [aiKey, setAiKey] = useState(() => localStorage.getItem('trivia-gemini-api-key') || '');
   const [isGenerating, setIsGenerating] = useState(false);
 
   const handleGenerateAI = async () => {
-    if (!aiKey) return alert("Please enter your Gemini API Key.");
+    if (!user) return alert("Please log in to generate quizzes with AI.");
     if (!aiCourse) return alert("Please enter a course code or name.");
     if (!aiTopic) return alert("Please enter a topic.");
     
-    localStorage.setItem('trivia-gemini-api-key', aiKey);
     setIsGenerating(true);
     try {
       const res = await fetch('/api/generate-quiz', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ course: aiCourse, topic: aiTopic, count: aiCount, apiKey: aiKey })
+        body: JSON.stringify({ course: aiCourse, topic: aiTopic, count: aiCount })
       });
       const data = await res.json();
       if (res.ok && Array.isArray(data)) {
@@ -657,6 +655,7 @@ export default function App() {
     return (
       <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
         <QuizEditor 
+          user={user}
           initialQuiz={editingQuiz} 
           onSave={handleSaveQuiz} 
           onAutoSave={(q) => setEditingQuiz(q)}
@@ -778,9 +777,11 @@ export default function App() {
                   </button>
                 </div>
                 <div className="flex gap-2 w-full sm:w-auto">
-                  <button onClick={() => setShowAIModal(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-yellow-400 hover:bg-yellow-300 text-yellow-900 border-b-[4px] border-yellow-600 rounded-xl font-black transition-all active:border-b-0 active:translate-y-[4px]">
-                    <Zap className="w-4 h-4" /> Generate
-                  </button>
+                  {user && (
+                    <button onClick={() => setShowAIModal(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-yellow-400 hover:bg-yellow-300 text-yellow-900 border-b-[4px] border-yellow-600 rounded-xl font-black transition-all active:border-b-0 active:translate-y-[4px]">
+                      <Zap className="w-4 h-4" /> Generate
+                    </button>
+                  )}
                   {quizTab === 'personal' && (
                     <button onClick={handleEditQuiz} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-700 border-b-[4px] border-slate-300 rounded-xl font-black transition-all active:border-b-0 active:translate-y-[4px]">
                       <Edit2 className="w-4 h-4" /> Edit Selected
@@ -1086,16 +1087,6 @@ export default function App() {
               <Zap className="w-6 h-6 text-yellow-500 fill-current" /> Question Generator
             </h2>
             <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Gemini API Key</label>
-                <input 
-                  type="password" 
-                  value={aiKey} 
-                  onChange={e => setAiKey(e.target.value)} 
-                  className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-slate-800" 
-                  placeholder="AI Studio API Key" 
-                />
-              </div>
               <div>
                 <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Ontario Course (Code or Name)</label>
                 <input 

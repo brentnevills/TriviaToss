@@ -12,10 +12,11 @@ async function startServer() {
   // API Routes
   app.post('/api/generate-quiz', async (req, res) => {
     try {
-      const { course, topic, count, apiKey } = req.body;
+      const { course, topic, count } = req.body;
       
+      const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) {
-        return res.status(400).json({ error: 'Please provide a Gemini API Key.' });
+        return res.status(500).json({ error: 'System Gemini API Key is missing.' });
       }
 
       const ai = new GoogleGenAI({ apiKey });

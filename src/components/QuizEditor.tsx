@@ -1,15 +1,17 @@
 import { useState, useEffect } from 'react';
 import { Quiz, QuizItem } from '../types';
 import { Trash2, Plus, Save, ArrowLeft, HelpCircle, Zap, Edit2 } from 'lucide-react';
+import { User } from 'firebase/auth';
 
 type Props = {
+  user?: User | null;
   initialQuiz: Quiz;
   onSave: (quiz: Quiz) => void;
   onAutoSave?: (quiz: Quiz) => void;
   onCancel: () => void;
 };
 
-export default function QuizEditor({ initialQuiz, onSave, onAutoSave, onCancel }: Props) {
+export default function QuizEditor({ user, initialQuiz, onSave, onAutoSave, onCancel }: Props) {
   const [quiz, setQuiz] = useState<Quiz>(initialQuiz);
   
   // Auto-save whenever the quiz state changes
@@ -48,20 +50,18 @@ export default function QuizEditor({ initialQuiz, onSave, onAutoSave, onCancel }
   const [aiCourse, setAiCourse] = useState('');
   const [aiTopic, setAiTopic] = useState('');
   const [aiCount, setAiCount] = useState(10);
-  const [aiKey, setAiKey] = useState(() => localStorage.getItem('trivia-gemini-api-key') || '');
 
   const handleGenerateAI = async () => {
-    if (!aiKey) return alert("Please enter your Gemini API Key.");
+    if (!user) return alert("Please log in to generate quizzes with AI.");
     if (!aiCourse) return alert("Please enter a course code or name.");
     if (!aiTopic) return alert("Please enter a topic.");
     
-    localStorage.setItem('trivia-gemini-api-key', aiKey);
     setIsGenerating(true);
     try {
       const res = await fetch('/api/generate-quiz', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ course: aiCourse, topic: aiTopic, count: aiCount, apiKey: aiKey })
+        body: JSON.stringify({ course: aiCourse, topic: aiTopic, count: aiCount })
       });
       const data = await res.json();
       if (res.ok && Array.isArray(data)) {
@@ -241,40 +241,38 @@ export default function QuizEditor({ initialQuiz, onSave, onAutoSave, onCancel }
             </button>
           </div>
 
-          <div className="bg-white p-8 rounded-[2rem] shadow-sm border-2 border-slate-200">
-            <h2 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-2">
-              <Zap className="w-6 h-6 text-yellow-500" /> Question Generator
-            </h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Gemini API Key</label>
-                <input type="password" value={aiKey} onChange={e => setAiKey(e.target.value)} className="w-full px-4 py-3 bg-white border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-slate-800" placeholder="AI Studio API Key" />
+          {user && (
+            <div className="bg-white p-8 rounded-[2rem] shadow-sm border-2 border-slate-200">
+              <h2 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-2">
+                <Zap className="w-6 h-6 text-yellow-500" /> Question Generator
+              </h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Ontario Course</label>
+                  <input type="text" value={aiCourse} onChange={e => setAiCourse(e.target.value)} className="w-full px-4 py-3 bg-white border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-slate-800" placeholder="e.g. SNC1W" />
+                </div>
+                <div>
+                  <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Topic</label>
+                  <input type="text" value={aiTopic} onChange={e => setAiTopic(e.target.value)} className="w-full px-4 py-3 bg-white border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-slate-800" placeholder="e.g. Space Exploration" />
+                </div>
+                <div>
+                  <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Count</label>
+                  <input type="number" value={aiCount} onChange={e => setAiCount(Number(e.target.value))} className="w-full px-4 py-3 bg-white border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-slate-800" min="1" max="50" />
+                </div>
+                <button 
+                  onClick={handleGenerateAI}
+                  disabled={isGenerating}
+                  className={`w-full font-black py-4 px-4 rounded-xl flex items-center justify-center gap-2 transition-all ${
+                    isGenerating 
+                      ? 'bg-slate-200 text-slate-400 border-b-[6px] border-slate-300 translate-y-[6px] border-b-0' 
+                      : 'bg-yellow-400 hover:bg-yellow-300 border-b-[6px] border-yellow-600 active:border-b-0 active:translate-y-[6px] text-slate-900'
+                  }`}
+                >
+                  {isGenerating ? 'Generating...' : 'Generate with Gemini'}
+                </button>
               </div>
-              <div>
-                <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Ontario Course</label>
-                <input type="text" value={aiCourse} onChange={e => setAiCourse(e.target.value)} className="w-full px-4 py-3 bg-white border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-slate-800" placeholder="e.g. SNC1W" />
-              </div>
-              <div>
-                <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Topic</label>
-                <input type="text" value={aiTopic} onChange={e => setAiTopic(e.target.value)} className="w-full px-4 py-3 bg-white border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-slate-800" placeholder="e.g. Space Exploration" />
-              </div>
-              <div>
-                <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Count</label>
-                <input type="number" value={aiCount} onChange={e => setAiCount(Number(e.target.value))} className="w-full px-4 py-3 bg-white border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-slate-800" min="1" max="50" />
-              </div>
-              <button 
-                onClick={handleGenerateAI}
-                disabled={isGenerating}
-                className={`w-full font-black py-4 px-4 rounded-xl flex items-center justify-center gap-2 transition-all ${
-                  isGenerating 
-                    ? 'bg-slate-200 text-slate-400 border-b-[6px] border-slate-300 translate-y-[6px] border-b-0' 
-                    : 'bg-yellow-400 hover:bg-yellow-300 border-b-[6px] border-yellow-600 active:border-b-0 active:translate-y-[6px] text-slate-900'
-                }`}
-              >
-                {isGenerating ? 'Generating...' : 'Generate with Gemini'}
-              </button>
             </div>
-          </div>
+          )}
         </div>
 
         <div className="lg:col-span-7">
