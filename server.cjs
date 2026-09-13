@@ -29,23 +29,36 @@ var import_genai = require("@google/genai");
 async function startServer() {
   const app = (0, import_express.default)();
   const PORT = 3e3;
-  app.use(import_express.default.json());
+  app.use(import_express.default.json({ limit: "50mb" }));
   app.post("/api/generate-quiz", async (req, res) => {
     try {
-      const { course, topic, count } = req.body;
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
+      const { course, topic, count, fileBase64, fileMimeType, fileName } = req.body;
+      const keyToUse = process.env.GEMINI_API_KEY;
+      if (!keyToUse) {
         return res.status(500).json({ error: "System Gemini API Key is missing." });
       }
-      const ai = new import_genai.GoogleGenAI({ apiKey });
+      const ai = new import_genai.GoogleGenAI({ apiKey: keyToUse });
       let response;
       let retries = 3;
       let delay = 1e3;
+      const parts = [
+        { text: `Generate a trivia quiz about "${topic}" specifically aligned with the Ontario school curriculum for the course "${course}". Create exactly ${count} questions. Make sure the difficulty, terminology, and concepts are strictly appropriate for Ontario students taking this specific course. ${fileName ? `
+
+Use the provided file "${fileName}" as the primary source material and context for generating these questions.` : ""}` }
+      ];
+      if (fileBase64 && fileMimeType) {
+        parts.push({
+          inlineData: {
+            data: fileBase64,
+            mimeType: fileMimeType
+          }
+        });
+      }
       while (retries > 0) {
         try {
           response = await ai.models.generateContent({
             model: "gemini-3.6-flash",
-            contents: `Generate a trivia quiz about "${topic}" specifically aligned with the Ontario school curriculum for the course "${course}". Create exactly ${count} questions. Make sure the difficulty, terminology, and concepts are strictly appropriate for Ontario students taking this specific course.`,
+            contents: parts,
             config: {
               responseMimeType: "application/json",
               responseSchema: {
