@@ -7,29 +7,42 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json());
+  app.use(express.json({ limit: '50mb' }));
 
   // API Routes
   app.post('/api/generate-quiz', async (req, res) => {
     try {
-      const { course, topic, count } = req.body;
+      const { course, topic, count, fileBase64, fileMimeType, fileName } = req.body;
       
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
+      const keyToUse = process.env.GEMINI_API_KEY;
+      if (!keyToUse) {
         return res.status(500).json({ error: 'System Gemini API Key is missing.' });
       }
 
-      const ai = new GoogleGenAI({ apiKey });
+      const ai = new GoogleGenAI({ apiKey: keyToUse });
 
       let response;
       let retries = 3;
       let delay = 1000;
       
+      const parts: any[] = [
+        { text: `Generate a trivia quiz about "${topic}" specifically aligned with the Ontario school curriculum for the course "${course}". Create exactly ${count} questions. Make sure the difficulty, terminology, and concepts are strictly appropriate for Ontario students taking this specific course. ${fileName ? `\n\nUse the provided file "${fileName}" as the primary source material and context for generating these questions.` : ''}` }
+      ];
+
+      if (fileBase64 && fileMimeType) {
+        parts.push({
+          inlineData: {
+            data: fileBase64,
+            mimeType: fileMimeType
+          }
+        });
+      }
+      
       while (retries > 0) {
         try {
           response = await ai.models.generateContent({
             model: 'gemini-3.6-flash',
-            contents: `Generate a trivia quiz about "${topic}" specifically aligned with the Ontario school curriculum for the course "${course}". Create exactly ${count} questions. Make sure the difficulty, terminology, and concepts are strictly appropriate for Ontario students taking this specific course.`,
+            contents: parts,
             config: {
               responseMimeType: 'application/json',
               responseSchema: {

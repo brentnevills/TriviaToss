@@ -50,30 +50,47 @@ export default function QuizEditor({ user, initialQuiz, onSave, onAutoSave, onCa
   const [aiCourse, setAiCourse] = useState('');
   const [aiTopic, setAiTopic] = useState('');
   const [aiCount, setAiCount] = useState(10);
+  const [aiPastedJSON, setAiPastedJSON] = useState('');
+  const [isCopied, setIsCopied] = useState(false);
 
-  const handleGenerateAI = async () => {
+  const getPrompt = () => {
+    return `Generate a trivia quiz about "${aiTopic}" specifically aligned with the Ontario school curriculum for the course "${aiCourse}". Create exactly ${aiCount} questions. Make sure the difficulty, terminology, and concepts are strictly appropriate for Ontario students taking this specific course.
+
+Output ONLY valid JSON in this exact format (no markdown formatting, no backticks, just raw JSON):
+[
+  {"q": "Question text", "a": "Answer text", "pts": 100}
+]`;
+  };
+
+  const handleCopyPrompt = () => {
+    if (!aiCourse || !aiTopic) return alert("Please enter course and topic first.");
+    navigator.clipboard.writeText(getPrompt());
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
+  };
+
+  const handleImportJSON = () => {
     if (!user) return alert("Please log in to generate quizzes with AI.");
-    if (!aiCourse) return alert("Please enter a course code or name.");
-    if (!aiTopic) return alert("Please enter a topic.");
     
-    setIsGenerating(true);
     try {
-      const res = await fetch('/api/generate-quiz', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ course: aiCourse, topic: aiTopic, count: aiCount })
-      });
-      const data = await res.json();
-      if (res.ok && Array.isArray(data)) {
+      let rawText = aiPastedJSON.trim();
+      if (rawText.startsWith('```json')) rawText = rawText.replace(/```json/g, '');
+      if (rawText.startsWith('```')) rawText = rawText.replace(/```/g, '');
+      if (rawText.endsWith('```')) rawText = rawText.substring(0, rawText.length - 3);
+      rawText = rawText.trim();
+      
+      const parsedData = JSON.parse(rawText);
+      
+      if (Array.isArray(parsedData)) {
+        const data = parsedData.map((item: any) => ({ ...item, type: 'q' }));
         setQuiz({ ...quiz, bank: [...quiz.bank, ...data] });
         setAiTopic('');
+        setAiPastedJSON('');
       } else {
-        alert(data.error || "Failed to generate questions");
+        alert("Invalid format: The pasted output must be a JSON array of questions.");
       }
     } catch (e) {
-      alert("Error calling generation API");
-    } finally {
-      setIsGenerating(false);
+      alert("Error parsing JSON. Please make sure you copied only the raw JSON output from Gemini.");
     }
   };
 
@@ -259,16 +276,37 @@ export default function QuizEditor({ user, initialQuiz, onSave, onAutoSave, onCa
                   <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Count</label>
                   <input type="number" value={aiCount} onChange={e => setAiCount(Number(e.target.value))} className="w-full px-4 py-3 bg-white border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-slate-800" min="1" max="50" />
                 </div>
+                
+                <div className="bg-slate-100 p-4 rounded-xl border border-slate-200 mt-6">
+                  <p className="text-sm text-slate-600 mb-3 font-medium">1. Copy this prompt and paste it into ChatGPT, Gemini, or Claude.</p>
+                  <button 
+                    onClick={handleCopyPrompt}
+                    className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-bold text-sm transition-colors flex justify-center items-center gap-2"
+                  >
+                    {isCopied ? 'Copied!' : 'Copy Prompt'}
+                  </button>
+                </div>
+
+                <div className="mt-2">
+                  <p className="text-sm text-slate-600 mb-2 font-medium">2. Paste the AI's response below (Raw JSON only):</p>
+                  <textarea
+                    value={aiPastedJSON}
+                    onChange={e => setAiPastedJSON(e.target.value)}
+                    placeholder='[{"q": "What is...", "a": "Answer", "pts": 100}]'
+                    className="w-full h-32 px-4 py-3 bg-slate-50 border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-mono text-sm text-slate-800 resize-none"
+                  />
+                </div>
+
                 <button 
-                  onClick={handleGenerateAI}
-                  disabled={isGenerating}
+                  onClick={handleImportJSON}
+                  disabled={!aiPastedJSON.trim()}
                   className={`w-full font-black py-4 px-4 rounded-xl flex items-center justify-center gap-2 transition-all ${
-                    isGenerating 
+                    !aiPastedJSON.trim() 
                       ? 'bg-slate-200 text-slate-400 border-b-[6px] border-slate-300 translate-y-[6px] border-b-0' 
                       : 'bg-yellow-400 hover:bg-yellow-300 border-b-[6px] border-yellow-600 active:border-b-0 active:translate-y-[6px] text-slate-900'
                   }`}
                 >
-                  {isGenerating ? 'Generating...' : 'Generate with Gemini'}
+                  Import Quiz JSON
                 </button>
               </div>
             </div>
