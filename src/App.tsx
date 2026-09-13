@@ -153,6 +153,8 @@ export default function App() {
   const getPrompt = () => {
     return `Generate a trivia quiz about "${aiTopic}" specifically aligned with the Ontario school curriculum for the course "${aiCourse}". Create exactly ${aiCount} questions. Make sure the difficulty, terminology, and concepts are strictly appropriate for Ontario students taking this specific course.
 
+[Optional: You can upload your lesson PDF or slideshow to this chat to make the questions specific to your materials!]
+
 Output ONLY valid JSON in this exact format (no markdown formatting, no backticks, just raw JSON):
 [
   {"q": "Question text", "a": "Answer text", "pts": 100}
@@ -1098,7 +1100,7 @@ Output ONLY valid JSON in this exact format (no markdown formatting, no backtick
       {/* AI Generate Modal overlay */}
       {showAIModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl border-4 border-slate-200 animate-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-[2rem] p-6 md:p-8 max-w-md w-full shadow-2xl border-4 border-slate-200 animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-black text-slate-800 mb-6 flex items-center gap-2">
               <Zap className="w-6 h-6 text-yellow-500 fill-current" /> Question Generator
             </h2>
@@ -1135,7 +1137,7 @@ Output ONLY valid JSON in this exact format (no markdown formatting, no backtick
               </div>
 
               <div className="bg-slate-100 p-4 rounded-xl border border-slate-200 mt-6">
-                <p className="text-sm text-slate-600 mb-3 font-medium">1. Copy this prompt and paste it into ChatGPT, Gemini, or Claude.</p>
+                <p className="text-sm text-slate-600 mb-3 font-medium">1. Copy this prompt and paste it into ChatGPT, Gemini, or Claude. <span className="block mt-1 text-blue-600">Tip: Upload a PDF/slideshow to the AI to cater questions to your lesson!</span></p>
                 <button 
                   onClick={handleCopyPrompt}
                   className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-bold text-sm transition-colors flex justify-center items-center gap-2"
