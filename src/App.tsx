@@ -941,7 +941,7 @@ Output EXACTLY this format:
                     if (!user) return q.id === 'default-quiz' || q.userId === 'anonymous';
                     return q.userId === user.uid || q.id === 'default-quiz';
                   } else {
-                    return q.isPublic !== false || (user && q.userId === user.uid) || q.id === 'default-quiz';
+                    return q.isPublic !== false || q.id === 'default-quiz';
                   }
                 }).map(q => (
                   <button 
