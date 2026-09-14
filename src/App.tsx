@@ -326,6 +326,59 @@ Output EXACTLY this format:
     }
   };
 
+  const handleRemoveQuiz = async (quizId: string) => {
+    if (quizId === 'default-quiz') {
+      alert("Cannot delete the default quiz.");
+      return;
+    }
+    
+    const quiz = quizzes.find(q => q.id === quizId);
+    if (!quiz) return;
+
+    if (quizTab === 'personal' && quiz.isPublic) {
+      // Remove from personal bank, but keep in global bank.
+      // This is done by changing the userId so it no longer appears in "My Bank".
+      const updatedQuiz = { ...quiz, userId: 'orphan' };
+      
+      // Optimistic update
+      let newQuizzes = [...quizzes];
+      const existingIdx = newQuizzes.findIndex(q => q.id === quiz.id);
+      if (existingIdx >= 0) newQuizzes[existingIdx] = updatedQuiz;
+      setQuizzes(newQuizzes);
+      
+      if (selectedQuizId === quizId) {
+        const remaining = newQuizzes.filter(q => q.userId === (user ? user.uid : 'anonymous') || q.id === 'default-quiz');
+        setSelectedQuizId(remaining.length > 0 ? remaining[0].id : 'default-quiz');
+      }
+
+      localStorage.setItem('trivia-quizzes', JSON.stringify(newQuizzes.filter(q => q.id !== 'default-quiz')));
+      
+      try {
+        await setDoc(doc(db, 'quizzes', quizId), updatedQuiz);
+      } catch (err) {
+        console.error("Failed to update in Firestore:", err);
+      }
+    } else {
+      // Actually delete it
+      // Optimistic update
+      const newQuizzes = quizzes.filter(q => q.id !== quizId);
+      setQuizzes(newQuizzes);
+      if (selectedQuizId === quizId) {
+        setSelectedQuizId(newQuizzes.length > 0 ? newQuizzes[0].id : 'default-quiz');
+      }
+
+      // Save to local
+      localStorage.setItem('trivia-quizzes', JSON.stringify(newQuizzes.filter(q => q.id !== 'default-quiz')));
+
+      // Delete from Firestore
+      try {
+        await deleteDoc(doc(db, 'quizzes', quizId));
+      } catch (err) {
+        console.error("Failed to delete from Firestore:", err);
+      }
+    }
+  };
+
   const deleteQuiz = async (quizId: string) => {
     if (quizId === 'default-quiz') {
       alert("Cannot delete the default quiz.");
@@ -941,19 +994,24 @@ Output EXACTLY this format:
                     ) : (
                       <>
                         <h3 className="text-sm font-black text-slate-700 uppercase tracking-wider">Cards in {quizzes.find(q => q.id === selectedQuizId)?.name}</h3>
-                        {selectedQuizId !== 'default-quiz' && (
-                          <div className="flex items-center gap-2">
-                            {(!user && quizzes.find(q => q.id === selectedQuizId)?.userId === 'anonymous') || (user && quizzes.find(q => q.id === selectedQuizId)?.userId === user.uid) ? (
-                              <>
-                                <button 
-                                  onClick={handleShareQuiz}
-                                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-                                >
-                                  <Share2 className="w-3.5 h-3.5" /> Share
-                                </button>
+                        {selectedQuizId !== 'default-quiz' && (() => {
+                          const q = quizzes.find(quiz => quiz.id === selectedQuizId);
+                          const isAdmin = user?.email === 'brent.nevills@sccdsb.net';
+                          const isOwner = user ? q?.userId === user.uid : q?.userId === 'anonymous';
+                          const canDelete = quizTab === 'personal' ? isOwner : (isOwner || isAdmin);
+                          
+                          return (
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <button 
+                                onClick={handleShareQuiz}
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                              >
+                                <Share2 className="w-3.5 h-3.5" /> Share
+                              </button>
+                              
+                              {isOwner && (
                                 <button 
                                   onClick={() => {
-                                    const q = quizzes.find(quiz => quiz.id === selectedQuizId);
                                     if (q) {
                                       setRenameInput(q.name);
                                       setRenamingQuizId(selectedQuizId);
@@ -963,12 +1021,26 @@ Output EXACTLY this format:
                                 >
                                   <Edit2 className="w-3.5 h-3.5" /> Rename
                                 </button>
-                                {confirmDeleteQuizId === selectedQuizId ? (
+                              )}
+                              
+                              {quizTab === 'global' && (
+                                <button 
+                                  onClick={() => {
+                                    if (q) handleCloneQuiz(q);
+                                  }}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors shadow-sm"
+                                >
+                                  <Plus className="w-3.5 h-3.5" /> Add to My Bank
+                                </button>
+                              )}
+
+                              {canDelete && (
+                                confirmDeleteQuizId === selectedQuizId ? (
                                   <div className="flex items-center gap-1">
                                     <span className="text-xs font-bold text-red-500 mr-1">Sure?</span>
                                     <button 
                                       onClick={() => {
-                                        deleteQuiz(selectedQuizId);
+                                        handleRemoveQuiz(selectedQuizId);
                                         setConfirmDeleteQuizId(null);
                                       }}
                                       className="px-2 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg"
@@ -987,31 +1059,13 @@ Output EXACTLY this format:
                                     onClick={() => setConfirmDeleteQuizId(selectedQuizId)}
                                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
                                   >
-                                    <Trash2 className="w-3.5 h-3.5" /> Remove from My Bank
+                                    <Trash2 className="w-3.5 h-3.5" /> {quizTab === 'personal' ? 'Remove from My Bank' : 'Delete'}
                                   </button>
-                                )}
-                              </>
-                            ) : (
-                              <>
-                                <button 
-                                  onClick={handleShareQuiz}
-                                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-                                >
-                                  <Share2 className="w-3.5 h-3.5" /> Share
-                                </button>
-                                <button 
-                                  onClick={() => {
-                                    const q = quizzes.find(quiz => quiz.id === selectedQuizId);
-                                    if (q) handleCloneQuiz(q);
-                                  }}
-                                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors shadow-sm"
-                                >
-                                  <Plus className="w-3.5 h-3.5" /> Add to My Bank
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        )}
+                                )
+                              )}
+                            </div>
+                          );
+                        })()}
                       </>
                     )}
                   </div>
