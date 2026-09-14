@@ -162,6 +162,7 @@ IMPORTANT RULES:
 - DO NOT generate an interactive quiz, UI, or markdown preview.
 - Output ONLY valid raw JSON format. No backticks, no intro text, no code block formatting.
 - Vary the point values ("pts") based on question difficulty so they average around 15 points per question (e.g., 5, 10, 15, 20, 25).
+- DO NOT include citations or reference markers (e.g., [cite1], [1], [source]) anywhere in the output. Strip all references from the generated questions and answers.
 
 Output EXACTLY this format:
 [
