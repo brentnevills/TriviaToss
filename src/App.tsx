@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { CardData, DisplayStrategy, GameMode, Team, Quiz } from './types';
 import defaultQuestions from './data/questions.json';
 import QuizEditor from './components/QuizEditor';
+import CourseInput from './components/CourseInput';
 import { Target, Play, Plus, Edit2, LogIn, LogOut, User as UserIcon, Zap, Trash2, HelpCircle, Share2 } from 'lucide-react';
 import { loginWithGoogle, logout, db, auth } from './lib/firebase';
 import { collection, query, where, getDocs, doc, setDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
@@ -149,7 +150,7 @@ export default function App() {
   const [showRulesModal, setShowRulesModal] = useState(false);
   const [aiCourse, setAiCourse] = useState('');
   const [aiTopic, setAiTopic] = useState('');
-  const [aiCount, setAiCount] = useState(10);
+  const [aiCount, setAiCount] = useState(25);
   const [aiPastedJSON, setAiPastedJSON] = useState('');
   const [isCopied, setIsCopied] = useState(false);
 
@@ -908,11 +909,10 @@ Output EXACTLY this format:
                       Global Bank
                     </button>
                   </div>
-                  <input
-                    type="text"
-                    placeholder="Filter by course..."
+                  <CourseInput
                     value={courseFilter}
-                    onChange={(e) => setCourseFilter(e.target.value)}
+                    onChange={setCourseFilter}
+                    placeholder="Filter by course..."
                     className="px-4 py-2 text-sm font-bold bg-white border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none w-full sm:w-64 transition-all"
                   />
                 </div>
@@ -1247,12 +1247,11 @@ Output EXACTLY this format:
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Ontario Course (Code or Name)</label>
-                <input 
-                  type="text" 
-                  value={aiCourse} 
-                  onChange={e => setAiCourse(e.target.value)} 
-                  className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-slate-800" 
-                  placeholder="e.g. SNC1W (Grade 9 Science)" 
+                <CourseInput
+                  value={aiCourse}
+                  onChange={setAiCourse}
+                  placeholder="e.g. SNC1W (Grade 9 Science)"
+                  className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-slate-800"
                 />
               </div>
               <div>

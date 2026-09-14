@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Quiz, QuizItem } from '../types';
 import { Trash2, Plus, Save, ArrowLeft, HelpCircle, Zap, Edit2 } from 'lucide-react';
 import { User } from 'firebase/auth';
+import CourseInput from './CourseInput';
 
 type Props = {
   user?: User | null;
@@ -128,10 +129,9 @@ export default function QuizEditor({ user, initialQuiz, onSave, onAutoSave, onCa
         </div>
         <div>
           <label className="block text-sm font-black text-slate-700 mb-3 uppercase tracking-wider">Course</label>
-          <input 
-            type="text" 
+          <CourseInput 
             value={quiz.course || ''} 
-            onChange={e => setQuiz({...quiz, course: e.target.value})}
+            onChange={(val) => setQuiz({...quiz, course: val})}
             className="w-full px-5 py-4 border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 bg-white font-black text-lg text-slate-800 transition-all outline-none"
             placeholder="e.g., Math 101"
           />
