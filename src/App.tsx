@@ -119,7 +119,7 @@ export default function App() {
     { name: 'Team 1', score: 0 },
     { name: 'Team 2', score: 0 }
   ]);
-  const [questionCount, setQuestionCount] = useState(10);
+  const [questionCount, setQuestionCount] = useState(20);
   const [mode, setMode] = useState<GameMode>('standard');
   const [displayStrategy, setDisplayStrategy] = useState<DisplayStrategy>('hide');
   const [includeDefaultWildcards, setIncludeDefaultWildcards] = useState(true);
