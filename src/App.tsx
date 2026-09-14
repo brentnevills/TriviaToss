@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { CardData, DisplayStrategy, GameMode, Team, Quiz } from './types';
 import defaultQuestions from './data/questions.json';
 import QuizEditor from './components/QuizEditor';
-import { Target, Play, Plus, Edit2, LogIn, LogOut, User as UserIcon, Zap, Trash2 } from 'lucide-react';
+import { Target, Play, Plus, Edit2, LogIn, LogOut, User as UserIcon, Zap, Trash2, HelpCircle, Share2 } from 'lucide-react';
 import { loginWithGoogle, logout, db, auth } from './lib/firebase';
 import { collection, query, where, getDocs, doc, setDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
 import { onAuthStateChanged, User } from 'firebase/auth';
@@ -121,7 +121,8 @@ export default function App() {
   const [questionCount, setQuestionCount] = useState(10);
   const [mode, setMode] = useState<GameMode>('standard');
   const [displayStrategy, setDisplayStrategy] = useState<DisplayStrategy>('hide');
-  const [includeDefaultWildcards, setIncludeDefaultWildcards] = useState(false);
+  const [includeDefaultWildcards, setIncludeDefaultWildcards] = useState(true);
+  const [courseFilter, setCourseFilter] = useState('');
   
   // Playing state
   const [currentTeamIdx, setCurrentTeamIdx] = useState(0);
@@ -132,6 +133,7 @@ export default function App() {
   // Modal state
   const [selectedCard, setSelectedCard] = useState<CardData | null>(null);
   const [showAnswer, setShowAnswer] = useState(false);
+  const [stealMode, setStealMode] = useState(false);
 
   // UI States for renaming/deleting without window.prompt/confirm
   const [renamingQuizId, setRenamingQuizId] = useState<string | null>(null);
@@ -144,6 +146,7 @@ export default function App() {
 
   // AI Modal State
   const [showAIModal, setShowAIModal] = useState(false);
+  const [showRulesModal, setShowRulesModal] = useState(false);
   const [aiCourse, setAiCourse] = useState('');
   const [aiTopic, setAiTopic] = useState('');
   const [aiCount, setAiCount] = useState(10);
@@ -155,7 +158,12 @@ export default function App() {
 
 [Optional: You can upload your lesson PDF or slideshow to this chat to make the questions specific to your materials!]
 
-Output ONLY valid JSON in this exact format (no markdown formatting, no backticks, just raw JSON):
+IMPORTANT RULES:
+- DO NOT generate an interactive quiz, UI, or markdown preview.
+- Output ONLY valid raw JSON format. No backticks, no intro text, no code block formatting.
+- Vary the point values ("pts") based on question difficulty so they average around 15 points per question (e.g., 5, 10, 15, 20, 25).
+
+Output EXACTLY this format:
 [
   {"q": "Question text", "a": "Answer text", "pts": 100}
 ]`;
@@ -173,10 +181,10 @@ Output ONLY valid JSON in this exact format (no markdown formatting, no backtick
     
     try {
       let rawText = aiPastedJSON.trim();
-      if (rawText.startsWith('```json')) rawText = rawText.replace(/```json/g, '');
-      if (rawText.startsWith('```')) rawText = rawText.replace(/```/g, '');
-      if (rawText.endsWith('```')) rawText = rawText.substring(0, rawText.length - 3);
-      rawText = rawText.trim();
+      const match = rawText.match(/\[[\s\S]*\]/);
+      if (match) {
+        rawText = match[0];
+      }
       
       const parsedData = JSON.parse(rawText);
       
@@ -267,12 +275,28 @@ Output ONLY valid JSON in this exact format (no markdown formatting, no backtick
     return () => unsubscribe();
   }, []);
 
+  const [hasHandledUrlQuiz, setHasHandledUrlQuiz] = useState(false);
+
   // Keep selectedQuizId valid
   useEffect(() => {
-    if (isQuizzesLoaded && quizzes.length > 0 && !quizzes.find(q => q.id === selectedQuizId)) {
-      setSelectedQuizId(quizzes[0].id);
+    if (isQuizzesLoaded && quizzes.length > 0) {
+      if (!hasHandledUrlQuiz) {
+        const params = new URLSearchParams(window.location.search);
+        const urlQuizId = params.get('quiz');
+        if (urlQuizId && quizzes.find(q => q.id === urlQuizId)) {
+          setSelectedQuizId(urlQuizId);
+          setQuizTab('global');
+        } else if (!quizzes.find(q => q.id === selectedQuizId)) {
+          setSelectedQuizId(quizzes[0].id);
+        }
+        setHasHandledUrlQuiz(true);
+      } else {
+        if (!quizzes.find(q => q.id === selectedQuizId)) {
+          setSelectedQuizId(quizzes[0].id);
+        }
+      }
     }
-  }, [isQuizzesLoaded, quizzes, selectedQuizId]);
+  }, [isQuizzesLoaded, quizzes, selectedQuizId, hasHandledUrlQuiz]);
 
   const saveQuizzes = async (quiz: Quiz) => {
     // Optimistic update to prevent race conditions with selectedQuizId
@@ -347,9 +371,10 @@ Output ONLY valid JSON in this exact format (no markdown formatting, no backtick
     const clonedQuiz: Quiz = {
       ...quiz,
       id: `quiz-${Date.now()}`,
-      name: `${quiz.name} (Copy)`,
+      name: quiz.name,
       userId: user.uid,
-      authorName: user.displayName || user.email || 'Anonymous'
+      authorName: user.displayName || user.email || 'Anonymous',
+      isPublic: false
     };
     await saveQuizzes(clonedQuiz);
     setQuizTab('personal');
@@ -371,6 +396,14 @@ Output ONLY valid JSON in this exact format (no markdown formatting, no backtick
     setSelectedQuizId(quiz.id);
     setEditingQuiz(null);
     setGameState('setup');
+  };
+
+  const handleShareQuiz = () => {
+    if (!selectedQuizId) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('quiz', selectedQuizId);
+    navigator.clipboard.writeText(url.toString());
+    alert('Link to quiz copied to clipboard!');
   };
 
   const buildTree = (questions: CardData[], isRow: boolean): TreeNode => {
@@ -431,12 +464,24 @@ Output ONLY valid JSON in this exact format (no markdown formatting, no backtick
   const handleCardClick = (card: CardData) => {
     setSelectedCard(card);
     setShowAnswer(false);
+    setStealMode(false);
   };
 
   const handleQuestionAnswer = (isCorrect: boolean) => {
     if (isCorrect && selectedCard && selectedCard.type === 'q') {
       const newTeams = [...teams];
       newTeams[currentTeamIdx].score += selectedCard.pts;
+      setTeams(newTeams);
+      closeModalAndRemoveCard();
+    } else {
+      setStealMode(true);
+    }
+  };
+
+  const handleSteal = (teamIdx: number | null) => {
+    if (teamIdx !== null && selectedCard && selectedCard.type === 'q') {
+      const newTeams = [...teams];
+      newTeams[teamIdx].score += selectedCard.pts;
       setTeams(newTeams);
     }
     closeModalAndRemoveCard();
@@ -687,7 +732,7 @@ Output ONLY valid JSON in this exact format (no markdown formatting, no backtick
     <div className="min-h-screen bg-slate-50 font-sans flex flex-col text-slate-900">
       {gameState === 'home' && (
         <div className="flex-1 flex flex-col items-center justify-center p-6 md:p-12 animate-in fade-in duration-500 text-center">
-          <div className="mb-8">
+          <div className="mb-8 relative">
             <h1 className="text-6xl md:text-8xl font-black tracking-tight flex justify-center mb-4" style={{ textShadow: '0 4px 0 rgba(0,0,0,0.1)' }}>
               <span className="text-red-500">T</span>
               <span className="text-blue-500">r</span>
@@ -701,9 +746,17 @@ Output ONLY valid JSON in this exact format (no markdown formatting, no backtick
               <span className="text-blue-500">s</span>
               <span className="text-yellow-400">!</span>
             </h1>
-            <p className="text-xl md:text-2xl text-slate-600 font-bold max-w-2xl mx-auto">
+            <p className="text-xl md:text-2xl text-slate-600 font-bold max-w-2xl mx-auto mb-6">
               The ultimate classroom trivia game.
             </p>
+            <div className="flex justify-center">
+              <button 
+                onClick={() => setShowRulesModal(true)} 
+                className="flex items-center gap-2 bg-blue-100 hover:bg-blue-200 text-blue-700 font-black py-2 px-6 rounded-full transition-all"
+              >
+                <HelpCircle className="w-5 h-5" /> How to Play
+              </button>
+            </div>
           </div>
           
           <div className="bg-white p-8 rounded-3xl shadow-xl border-2 border-slate-200 max-w-md w-full">
@@ -753,7 +806,13 @@ Output ONLY valid JSON in this exact format (no markdown formatting, no backtick
               <span className="text-blue-500">s</span>
               <span className="text-yellow-400">!</span>
             </h1>
-            <div className="flex items-center justify-center md:justify-end">
+            <div className="flex items-center justify-center md:justify-end gap-3">
+              <button 
+                onClick={() => setShowRulesModal(true)} 
+                className="flex items-center gap-2 bg-blue-100 hover:bg-blue-200 text-blue-700 font-black py-2 px-4 rounded-full transition-all"
+              >
+                <HelpCircle className="w-5 h-5" /> Rules
+              </button>
               {user ? (
                 <div className="flex items-center gap-4 bg-white px-4 py-2 rounded-full border-2 border-slate-200 shadow-sm">
                   <div className="flex items-center gap-2 text-slate-700 font-black">
@@ -779,22 +838,31 @@ Output ONLY valid JSON in this exact format (no markdown formatting, no backtick
           <div className="space-y-8 bg-white p-8 md:p-10 rounded-[2rem] shadow-xl border-2 border-slate-200">
             
             <div className="bg-slate-100 p-6 rounded-2xl border-2 border-slate-200 mb-6">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
-                <div className="flex border-2 border-slate-200 bg-slate-200 rounded-xl p-1">
-                  <button 
-                    onClick={() => setQuizTab('personal')}
-                    className={`px-4 py-2 text-sm font-black rounded-lg transition-all ${quizTab === 'personal' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                  >
-                    My Bank
-                  </button>
-                  <button 
-                    onClick={() => setQuizTab('global')}
-                    className={`px-4 py-2 text-sm font-black rounded-lg transition-all ${quizTab === 'global' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                  >
-                    Global Bank
-                  </button>
+              <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 mb-4">
+                <div className="flex flex-col sm:flex-row gap-4 w-full xl:w-auto flex-wrap">
+                  <div className="flex border-2 border-slate-200 bg-slate-200 rounded-xl p-1 shrink-0 w-full sm:w-auto">
+                    <button 
+                      onClick={() => setQuizTab('personal')}
+                      className={`flex-1 sm:flex-none px-4 py-2 text-sm font-black rounded-lg transition-all ${quizTab === 'personal' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                      My Bank
+                    </button>
+                    <button 
+                      onClick={() => setQuizTab('global')}
+                      className={`flex-1 sm:flex-none px-4 py-2 text-sm font-black rounded-lg transition-all ${quizTab === 'global' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                      Global Bank
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Filter by course..."
+                    value={courseFilter}
+                    onChange={(e) => setCourseFilter(e.target.value)}
+                    className="px-4 py-2 text-sm font-bold bg-white border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none w-full sm:w-64 transition-all"
+                  />
                 </div>
-                <div className="flex gap-2 w-full sm:w-auto">
+                <div className="flex flex-wrap gap-2 w-full xl:w-auto shrink-0 pb-2 sm:pb-0">
                   {user && (
                     <button onClick={() => setShowAIModal(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-yellow-400 hover:bg-yellow-300 text-yellow-900 border-b-[4px] border-yellow-600 rounded-xl font-black transition-all active:border-b-0 active:translate-y-[4px]">
                       <Zap className="w-4 h-4" /> Generate
@@ -802,21 +870,24 @@ Output ONLY valid JSON in this exact format (no markdown formatting, no backtick
                   )}
                   {quizTab === 'personal' && (
                     <button onClick={handleEditQuiz} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-700 border-b-[4px] border-slate-300 rounded-xl font-black transition-all active:border-b-0 active:translate-y-[4px]">
-                      <Edit2 className="w-4 h-4" /> Edit Selected
+                      <Edit2 className="w-4 h-4" /> Edit
                     </button>
                   )}
                   <button onClick={handleCreateQuiz} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-500 hover:bg-blue-400 text-white border-b-[4px] border-blue-700 rounded-xl font-black transition-all active:border-b-0 active:translate-y-[4px]">
-                    <Plus className="w-4 h-4" /> New Quiz
+                    <Plus className="w-4 h-4" /> New
                   </button>
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-96 overflow-y-auto p-1">
                 {quizzes.filter(q => {
+                  const matchesCourse = courseFilter === '' || (q.course || '').toLowerCase().includes(courseFilter.toLowerCase());
+                  if (!matchesCourse) return false;
+                  
                   if (quizTab === 'personal') {
                     if (!user) return q.id === 'default-quiz' || q.userId === 'anonymous';
                     return q.userId === user.uid || q.id === 'default-quiz';
                   } else {
-                    return true;
+                    return q.isPublic !== false || (user && q.userId === user.uid) || q.id === 'default-quiz';
                   }
                 }).map(q => (
                   <button 
@@ -874,6 +945,12 @@ Output ONLY valid JSON in this exact format (no markdown formatting, no backtick
                             {(!user && quizzes.find(q => q.id === selectedQuizId)?.userId === 'anonymous') || (user && quizzes.find(q => q.id === selectedQuizId)?.userId === user.uid) ? (
                               <>
                                 <button 
+                                  onClick={handleShareQuiz}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                                >
+                                  <Share2 className="w-3.5 h-3.5" /> Share
+                                </button>
+                                <button 
                                   onClick={() => {
                                     const q = quizzes.find(quiz => quiz.id === selectedQuizId);
                                     if (q) {
@@ -909,20 +986,28 @@ Output ONLY valid JSON in this exact format (no markdown formatting, no backtick
                                     onClick={() => setConfirmDeleteQuizId(selectedQuizId)}
                                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
                                   >
-                                    <Trash2 className="w-3.5 h-3.5" /> Delete
+                                    <Trash2 className="w-3.5 h-3.5" /> Remove from My Bank
                                   </button>
                                 )}
                               </>
                             ) : (
-                              <button 
-                                onClick={() => {
-                                  const q = quizzes.find(quiz => quiz.id === selectedQuizId);
-                                  if (q) handleCloneQuiz(q);
-                                }}
-                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors shadow-sm"
-                              >
-                                <Plus className="w-3.5 h-3.5" /> Add to My Bank
-                              </button>
+                              <>
+                                <button 
+                                  onClick={handleShareQuiz}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                                >
+                                  <Share2 className="w-3.5 h-3.5" /> Share
+                                </button>
+                                <button 
+                                  onClick={() => {
+                                    const q = quizzes.find(quiz => quiz.id === selectedQuizId);
+                                    if (q) handleCloneQuiz(q);
+                                  }}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors shadow-sm"
+                                >
+                                  <Plus className="w-3.5 h-3.5" /> Add to My Bank
+                                </button>
+                              </>
                             )}
                           </div>
                         )}
@@ -1282,19 +1367,47 @@ Output ONLY valid JSON in this exact format (no markdown formatting, no backtick
                 )}
 
                 {showAnswer && (
-                  <div className="flex flex-col sm:flex-row gap-6 justify-center mt-8">
-                    <button 
-                      onClick={() => handleQuestionAnswer(false)}
-                      className="flex-1 bg-red-500 hover:bg-red-400 border-b-[6px] border-red-700 active:border-b-0 active:translate-y-[6px] text-white font-black py-6 px-6 rounded-2xl text-2xl transition-all"
-                    >
-                      Incorrect
-                    </button>
-                    <button 
-                      onClick={() => handleQuestionAnswer(true)}
-                      className="flex-1 bg-green-500 hover:bg-green-400 border-b-[6px] border-green-700 active:border-b-0 active:translate-y-[6px] text-white font-black py-6 px-6 rounded-2xl text-2xl transition-all"
-                    >
-                      Correct (+{selectedCard.pts})
-                    </button>
+                  <div className="mt-8">
+                    {!stealMode ? (
+                      <div className="flex flex-col sm:flex-row gap-6 justify-center">
+                        <button 
+                          onClick={() => handleQuestionAnswer(false)}
+                          className="flex-1 bg-red-500 hover:bg-red-400 border-b-[6px] border-red-700 active:border-b-0 active:translate-y-[6px] text-white font-black py-6 px-6 rounded-2xl text-2xl transition-all"
+                        >
+                          Incorrect
+                        </button>
+                        <button 
+                          onClick={() => handleQuestionAnswer(true)}
+                          className="flex-1 bg-green-500 hover:bg-green-400 border-b-[6px] border-green-700 active:border-b-0 active:translate-y-[6px] text-white font-black py-6 px-6 rounded-2xl text-2xl transition-all"
+                        >
+                          Correct (+{selectedCard.pts})
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center">
+                        <h3 className="text-xl font-bold text-slate-700 mb-4 flex items-center gap-2"><Zap className="w-5 h-5 text-yellow-500" /> Steal Opportunity!</h3>
+                        <p className="text-slate-500 mb-6 font-medium text-center">Did another team get the correct answer?</p>
+                        <div className="flex flex-wrap gap-4 justify-center w-full">
+                          {teams.map((t, idx) => (
+                            idx !== currentTeamIdx && (
+                              <button
+                                key={idx}
+                                onClick={() => handleSteal(idx)}
+                                className="flex-1 min-w-[150px] bg-blue-500 hover:bg-blue-400 border-b-[6px] border-blue-700 active:border-b-0 active:translate-y-[6px] text-white font-black py-4 px-4 rounded-xl text-lg transition-all"
+                              >
+                                {t.name} Stole It!
+                              </button>
+                            )
+                          ))}
+                          <button
+                            onClick={() => handleSteal(null)}
+                            className="flex-1 min-w-[150px] bg-slate-500 hover:bg-slate-400 border-b-[6px] border-slate-700 active:border-b-0 active:translate-y-[6px] text-white font-black py-4 px-4 rounded-xl text-lg transition-all"
+                          >
+                            Nobody Stole
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1317,6 +1430,39 @@ Output ONLY valid JSON in this exact format (no markdown formatting, no backtick
                aria-label="Close"
             >
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showRulesModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-white rounded-[2rem] p-6 md:p-8 max-w-lg w-full shadow-2xl border-4 border-slate-200 animate-in zoom-in-95 duration-200 relative">
+            <h2 className="text-3xl font-black text-slate-800 mb-6 flex items-center gap-3">
+              <HelpCircle className="w-8 h-8 text-blue-500" /> Game Rules
+            </h2>
+            <div className="space-y-6 text-slate-700">
+              <div>
+                <h3 className="text-xl font-bold text-slate-900 mb-2">🎯 Objective</h3>
+                <p className="font-medium">Teams take turns selecting mystery tiles from the board to reveal either a Question or a Wildcard. Accumulate the most points to win!</p>
+              </div>
+              
+              <div>
+                <h3 className="text-xl font-bold text-slate-900 mb-2">🤔 Answering & Stealing</h3>
+                <p className="font-medium">If a team answers a question correctly, they earn the points. If they answer incorrectly, they get 0 points, and <strong className="text-blue-600">another team can STEAL</strong> the question to earn the points instead!</p>
+              </div>
+
+              <div>
+                <h3 className="text-xl font-bold text-slate-900 mb-2">⚡ Wildcards</h3>
+                <p className="font-medium">Watch out! Some tiles are wildcards. They can instantly award free points, deduct points, let you steal from the leader, or force a score swap.</p>
+              </div>
+            </div>
+            
+            <button 
+              onClick={() => setShowRulesModal(false)}
+              className="mt-8 w-full bg-blue-500 hover:bg-blue-400 border-b-[6px] border-blue-700 active:border-b-0 active:translate-y-[6px] text-white font-black py-4 rounded-xl text-xl transition-all"
+            >
+              Got it!
             </button>
           </div>
         </div>

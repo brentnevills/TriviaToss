@@ -46,56 +46,6 @@ export default function QuizEditor({ user, initialQuiz, onSave, onAutoSave, onCa
 
   const [editIndex, setEditIndex] = useState<number | null>(null);
 
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [aiCourse, setAiCourse] = useState('');
-  const [aiTopic, setAiTopic] = useState('');
-  const [aiCount, setAiCount] = useState(10);
-  const [aiPastedJSON, setAiPastedJSON] = useState('');
-  const [isCopied, setIsCopied] = useState(false);
-
-  const getPrompt = () => {
-    return `Generate a trivia quiz about "${aiTopic}" specifically aligned with the Ontario school curriculum for the course "${aiCourse}". Create exactly ${aiCount} questions. Make sure the difficulty, terminology, and concepts are strictly appropriate for Ontario students taking this specific course.
-
-[Optional: You can upload your lesson PDF or slideshow to this chat to make the questions specific to your materials!]
-
-Output ONLY valid JSON in this exact format (no markdown formatting, no backticks, just raw JSON):
-[
-  {"q": "Question text", "a": "Answer text", "pts": 100}
-]`;
-  };
-
-  const handleCopyPrompt = () => {
-    if (!aiCourse || !aiTopic) return alert("Please enter course and topic first.");
-    navigator.clipboard.writeText(getPrompt());
-    setIsCopied(true);
-    setTimeout(() => setIsCopied(false), 2000);
-  };
-
-  const handleImportJSON = () => {
-    if (!user) return alert("Please log in to generate quizzes with AI.");
-    
-    try {
-      let rawText = aiPastedJSON.trim();
-      if (rawText.startsWith('```json')) rawText = rawText.replace(/```json/g, '');
-      if (rawText.startsWith('```')) rawText = rawText.replace(/```/g, '');
-      if (rawText.endsWith('```')) rawText = rawText.substring(0, rawText.length - 3);
-      rawText = rawText.trim();
-      
-      const parsedData = JSON.parse(rawText);
-      
-      if (Array.isArray(parsedData)) {
-        const data = parsedData.map((item: any) => ({ ...item, type: 'q' }));
-        setQuiz({ ...quiz, bank: [...quiz.bank, ...data] });
-        setAiTopic('');
-        setAiPastedJSON('');
-      } else {
-        alert("Invalid format: The pasted output must be a JSON array of questions.");
-      }
-    } catch (e) {
-      alert("Error parsing JSON. Please make sure you copied only the raw JSON output from Gemini.");
-    }
-  };
-
   const handleEditClick = (idx: number, item: QuizItem) => {
     setEditIndex(idx);
     setNewItemType(item.type);
@@ -165,7 +115,7 @@ Output ONLY valid JSON in this exact format (no markdown formatting, no backtick
         <h1 className="text-4xl font-black text-slate-800">Quiz Editor</h1>
       </div>
 
-      <div className="bg-white p-8 rounded-[2rem] shadow-sm border-2 border-slate-200 mb-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="bg-white p-8 rounded-[2rem] shadow-sm border-2 border-slate-200 mb-8 grid grid-cols-1 md:grid-cols-4 gap-6">
         <div>
           <label className="block text-sm font-black text-slate-700 mb-3 uppercase tracking-wider">Quiz Name</label>
           <input 
@@ -177,7 +127,7 @@ Output ONLY valid JSON in this exact format (no markdown formatting, no backtick
           />
         </div>
         <div>
-          <label className="block text-sm font-black text-slate-700 mb-3 uppercase tracking-wider">Course / Subject</label>
+          <label className="block text-sm font-black text-slate-700 mb-3 uppercase tracking-wider">Course</label>
           <input 
             type="text" 
             value={quiz.course || ''} 
@@ -195,6 +145,19 @@ Output ONLY valid JSON in this exact format (no markdown formatting, no backtick
             className="w-full px-5 py-4 border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 bg-white font-black text-lg text-slate-800 transition-all outline-none"
             placeholder="e.g., Mr. Smith"
           />
+        </div>
+        <div>
+          <label className="block text-sm font-black text-slate-700 mb-3 uppercase tracking-wider">Visibility</label>
+          <button
+            onClick={() => setQuiz({...quiz, isPublic: quiz.isPublic === false ? true : false})}
+            className={`w-full px-5 py-4 border-2 rounded-xl font-black text-lg transition-all outline-none flex items-center justify-center gap-2 ${
+              quiz.isPublic !== false 
+                ? 'bg-green-50 border-green-500 text-green-700' 
+                : 'bg-slate-100 border-slate-300 text-slate-600'
+            }`}
+          >
+            {quiz.isPublic !== false ? 'Public' : 'Private'}
+          </button>
         </div>
       </div>
 
@@ -259,70 +222,16 @@ Output ONLY valid JSON in this exact format (no markdown formatting, no backtick
               <Plus className="w-5 h-5" /> {editIndex !== null ? 'Update Card' : 'Add to Quiz'}
             </button>
           </div>
-
-          {user && (
-            <div className="bg-white p-8 rounded-[2rem] shadow-sm border-2 border-slate-200">
-              <h2 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-2">
-                <Zap className="w-6 h-6 text-yellow-500" /> Question Generator
-              </h2>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Ontario Course</label>
-                  <input type="text" value={aiCourse} onChange={e => setAiCourse(e.target.value)} className="w-full px-4 py-3 bg-white border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-slate-800" placeholder="e.g. SNC1W" />
-                </div>
-                <div>
-                  <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Topic</label>
-                  <input type="text" value={aiTopic} onChange={e => setAiTopic(e.target.value)} className="w-full px-4 py-3 bg-white border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-slate-800" placeholder="e.g. Space Exploration" />
-                </div>
-                <div>
-                  <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">Count</label>
-                  <input type="number" value={aiCount} onChange={e => setAiCount(Number(e.target.value))} className="w-full px-4 py-3 bg-white border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-black text-slate-800" min="1" max="50" />
-                </div>
-                
-                <div className="bg-slate-100 p-4 rounded-xl border border-slate-200 mt-6">
-                  <p className="text-sm text-slate-600 mb-3 font-medium">1. Copy this prompt and paste it into ChatGPT, Gemini, or Claude. <span className="block mt-1 text-blue-600">Tip: Upload a PDF/slideshow to the AI to cater questions to your lesson!</span></p>
-                  <button 
-                    onClick={handleCopyPrompt}
-                    className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-bold text-sm transition-colors flex justify-center items-center gap-2"
-                  >
-                    {isCopied ? 'Copied!' : 'Copy Prompt'}
-                  </button>
-                </div>
-
-                <div className="mt-2">
-                  <p className="text-sm text-slate-600 mb-2 font-medium">2. Paste the AI's response below (Raw JSON only):</p>
-                  <textarea
-                    value={aiPastedJSON}
-                    onChange={e => setAiPastedJSON(e.target.value)}
-                    placeholder='[{"q": "What is...", "a": "Answer", "pts": 100}]'
-                    className="w-full h-32 px-4 py-3 bg-slate-50 border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-mono text-sm text-slate-800 resize-none"
-                  />
-                </div>
-
-                <button 
-                  onClick={handleImportJSON}
-                  disabled={!aiPastedJSON.trim()}
-                  className={`w-full font-black py-4 px-4 rounded-xl flex items-center justify-center gap-2 transition-all ${
-                    !aiPastedJSON.trim() 
-                      ? 'bg-slate-200 text-slate-400 border-b-[6px] border-slate-300 translate-y-[6px] border-b-0' 
-                      : 'bg-yellow-400 hover:bg-yellow-300 border-b-[6px] border-yellow-600 active:border-b-0 active:translate-y-[6px] text-slate-900'
-                  }`}
-                >
-                  Import Quiz JSON
-                </button>
-              </div>
-            </div>
-          )}
         </div>
 
         <div className="lg:col-span-7">
-          <div className="bg-white p-8 rounded-[2rem] shadow-sm border-2 border-slate-200 h-full flex flex-col">
+          <div className="bg-white p-6 rounded-[2rem] shadow-sm border-2 border-slate-200 h-full flex flex-col">
             <h2 className="text-2xl font-black text-slate-800 mb-6 flex items-center justify-between">
               Quiz Bank <span className="bg-blue-100 text-blue-700 py-1 px-3 rounded-full text-sm font-black">{quiz.bank.length} cards</span>
             </h2>
-            <div className="space-y-4 overflow-y-auto pr-2 flex-1 max-h-[600px]">
+            <div className="space-y-3 overflow-y-auto pr-2 flex-1 max-h-[600px]">
               {quiz.bank.map((item, idx) => (
-                <div key={idx} className="group flex flex-col sm:flex-row sm:items-center justify-between p-5 border-2 border-slate-200 rounded-2xl bg-white transition-all gap-4">
+                <div key={idx} className="group flex flex-col sm:flex-row sm:items-center justify-between p-4 border-2 border-slate-200 rounded-2xl bg-white transition-all gap-4">
                   <div className="flex-1 min-w-0">
                     {item.type === 'q' ? (
                       <>

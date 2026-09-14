@@ -25,6 +25,7 @@ export type Quiz = {
   authorName?: string;
   bank: QuizItem[];
   userId?: string;
+  isPublic?: boolean;
 };
 
 export type Team = {
