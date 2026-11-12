@@ -5,6 +5,7 @@ import { User } from 'firebase/auth';
 import CourseInput from './CourseInput';
 
 type Props = {
+  key?: string;
   user?: User | null;
   initialQuiz: Quiz;
   onSave: (quiz: Quiz) => void;
@@ -12,8 +13,43 @@ type Props = {
   onCancel: () => void;
 };
 
+const safeGetItem = (key: string, fallback: string = ''): string => {
+  try {
+    return localStorage.getItem(key) || fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const formatDisplay = (val: any): string => {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'string') return val;
+  if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+  if (Array.isArray(val)) return val.map(formatDisplay).join(', ');
+  if (typeof val === 'object') {
+    if (val.text) return formatDisplay(val.text);
+    if (val.answer) return formatDisplay(val.answer);
+    if (val.value) return formatDisplay(val.value);
+    return JSON.stringify(val);
+  }
+  return String(val);
+};
+
 export default function QuizEditor({ user, initialQuiz, onSave, onAutoSave, onCancel }: Props) {
-  const [quiz, setQuiz] = useState<Quiz>(initialQuiz);
+  const [quiz, setQuiz] = useState<Quiz>(() => ({
+    ...initialQuiz,
+    bank: Array.isArray(initialQuiz?.bank) ? initialQuiz.bank : []
+  }));
+
+  // Keep quiz in sync if a different initialQuiz is provided
+  useEffect(() => {
+    if (initialQuiz) {
+      setQuiz({
+        ...initialQuiz,
+        bank: Array.isArray(initialQuiz.bank) ? initialQuiz.bank : []
+      });
+    }
+  }, [initialQuiz?.id]);
   
   // Auto-save whenever the quiz state changes
   useEffect(() => {
@@ -24,40 +60,46 @@ export default function QuizEditor({ user, initialQuiz, onSave, onAutoSave, onCa
   }, [quiz]);
   
   // New item state
-  const [newItemType, setNewItemType] = useState<'q' | 'w'>(() => (localStorage.getItem('trivia-draft-type') as any) || 'q');
+  const [newItemType, setNewItemType] = useState<'q' | 'w'>(() => (safeGetItem('trivia-draft-type') as any) || 'q');
   
   // Q state
-  const [qText, setQText] = useState(() => localStorage.getItem('trivia-draft-q') || '');
-  const [aText, setAText] = useState(() => localStorage.getItem('trivia-draft-a') || '');
-  const [qPts, setQPts] = useState(() => parseInt(localStorage.getItem('trivia-draft-qpts') || '100'));
+  const [qText, setQText] = useState(() => safeGetItem('trivia-draft-q'));
+  const [aText, setAText] = useState(() => safeGetItem('trivia-draft-a'));
+  const [qPts, setQPts] = useState(() => {
+    const parsed = parseInt(safeGetItem('trivia-draft-qpts', '20'));
+    return isNaN(parsed) ? 20 : parsed;
+  });
   
   // W state
-  const [wAction, setWAction] = useState<'free' | 'lose' | 'steal' | 'swap'>(() => (localStorage.getItem('trivia-draft-waction') as any) || 'free');
-  const [wText, setWText] = useState(() => localStorage.getItem('trivia-draft-wtext') || '');
-  const [wPts, setWPts] = useState(() => parseInt(localStorage.getItem('trivia-draft-wpts') || '200'));
+  const [wAction, setWAction] = useState<'free' | 'lose' | 'steal' | 'swap'>(() => (safeGetItem('trivia-draft-waction') as any) || 'free');
+  const [wText, setWText] = useState(() => safeGetItem('trivia-draft-wtext'));
+  const [wPts, setWPts] = useState(() => {
+    const parsed = parseInt(safeGetItem('trivia-draft-wpts', '20'));
+    return isNaN(parsed) ? 20 : parsed;
+  });
 
   // Persist draft fields
-  useEffect(() => { localStorage.setItem('trivia-draft-type', newItemType); }, [newItemType]);
-  useEffect(() => { localStorage.setItem('trivia-draft-q', qText); }, [qText]);
-  useEffect(() => { localStorage.setItem('trivia-draft-a', aText); }, [aText]);
-  useEffect(() => { localStorage.setItem('trivia-draft-qpts', qPts.toString()); }, [qPts]);
-  useEffect(() => { localStorage.setItem('trivia-draft-waction', wAction); }, [wAction]);
-  useEffect(() => { localStorage.setItem('trivia-draft-wtext', wText); }, [wText]);
-  useEffect(() => { localStorage.setItem('trivia-draft-wpts', wPts.toString()); }, [wPts]);
+  useEffect(() => { try { localStorage.setItem('trivia-draft-type', newItemType); } catch {} }, [newItemType]);
+  useEffect(() => { try { localStorage.setItem('trivia-draft-q', qText); } catch {} }, [qText]);
+  useEffect(() => { try { localStorage.setItem('trivia-draft-a', aText); } catch {} }, [aText]);
+  useEffect(() => { try { localStorage.setItem('trivia-draft-qpts', (qPts || 20).toString()); } catch {} }, [qPts]);
+  useEffect(() => { try { localStorage.setItem('trivia-draft-waction', wAction); } catch {} }, [wAction]);
+  useEffect(() => { try { localStorage.setItem('trivia-draft-wtext', wText); } catch {} }, [wText]);
+  useEffect(() => { try { localStorage.setItem('trivia-draft-wpts', (wPts || 20).toString()); } catch {} }, [wPts]);
 
   const [editIndex, setEditIndex] = useState<number | null>(null);
 
   const handleEditClick = (idx: number, item: QuizItem) => {
     setEditIndex(idx);
-    setNewItemType(item.type);
+    setNewItemType(item.type || 'q');
     if (item.type === 'q') {
-      setQText(item.q);
-      setAText(item.a);
-      setQPts(item.pts);
+      setQText(formatDisplay(item.q));
+      setAText(formatDisplay(item.a));
+      setQPts(typeof item.pts === 'number' ? item.pts : 20);
     } else {
-      setWAction(item.action);
-      setWText(item.text);
-      setWPts(item.pts);
+      setWAction((item as any).action || 'free');
+      setWText(formatDisplay((item as any).text));
+      setWPts(typeof item.pts === 'number' ? item.pts : 20);
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -227,26 +269,37 @@ export default function QuizEditor({ user, initialQuiz, onSave, onAutoSave, onCa
         <div className="lg:col-span-7">
           <div className="bg-white p-6 rounded-[2rem] shadow-sm border-2 border-slate-200 h-full flex flex-col">
             <h2 className="text-2xl font-black text-slate-800 mb-6 flex items-center justify-between">
-              Quiz Bank <span className="bg-blue-100 text-blue-700 py-1 px-3 rounded-full text-sm font-black">{quiz.bank.length} cards</span>
+              Quiz Bank <span className="bg-blue-100 text-blue-700 py-1 px-3 rounded-full text-sm font-black">{(quiz.bank || []).length} cards</span>
             </h2>
             <div className="space-y-3 overflow-y-auto pr-2 flex-1 max-h-[600px]">
-              {quiz.bank.map((item, idx) => (
+              {(quiz.bank || []).map((item, idx) => (
                 <div key={idx} className="group flex flex-col sm:flex-row sm:items-center justify-between p-4 border-2 border-slate-200 rounded-2xl bg-white transition-all gap-4">
                   <div className="flex-1 min-w-0">
-                    {item.type === 'q' ? (
+                    {item && item.type === 'q' ? (
                       <>
-                        <p className="font-black text-slate-800 truncate mb-1"><span className="text-blue-500 mr-2">Q:</span>{item.q}</p>
-                        <p className="text-sm font-bold text-slate-500 truncate"><span className="text-slate-400 mr-2">A:</span>{item.a}</p>
+                        <p className="font-black text-slate-800 truncate mb-1">
+                          <span className="text-blue-500 mr-2">Q:</span>
+                          {formatDisplay(item.q)}
+                        </p>
+                        <p className="text-sm font-bold text-slate-500 truncate">
+                          <span className="text-slate-400 mr-2">A:</span>
+                          {formatDisplay(item.a)}
+                        </p>
                       </>
                     ) : (
                       <>
-                        <p className="font-black text-purple-600 truncate"><span className="text-purple-400 mr-2">W ({item.action}):</span>{item.text}</p>
+                        <p className="font-black text-purple-600 truncate">
+                          <span className="text-purple-400 mr-2">W ({item ? (item as any).action : 'wild'}):</span>
+                          {item ? formatDisplay((item as any).text) : ''}
+                        </p>
                       </>
                     )}
                   </div>
                   <div className="flex items-center gap-4 sm:justify-end">
-                    <span className="font-black text-slate-300 text-xl whitespace-nowrap">{item.pts} pts</span>
-                    <button onClick={() => handleEditClick(idx, item)} className="p-3 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-colors flex-shrink-0 opacity-100 sm:opacity-0 group-hover:opacity-100" title="Edit">
+                    <span className="font-black text-slate-300 text-xl whitespace-nowrap">
+                      {item && typeof item.pts === 'number' ? item.pts : (parseInt(String(item?.pts || '20')) || 20)} pts
+                    </span>
+                    <button onClick={() => item && handleEditClick(idx, item)} className="p-3 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-colors flex-shrink-0 opacity-100 sm:opacity-0 group-hover:opacity-100" title="Edit">
                       <Edit2 className="w-5 h-5" />
                     </button>
                     <button onClick={() => handleRemoveItem(idx)} className="p-3 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors flex-shrink-0 opacity-100 sm:opacity-0 group-hover:opacity-100" title="Delete">
@@ -255,7 +308,7 @@ export default function QuizEditor({ user, initialQuiz, onSave, onAutoSave, onCa
                   </div>
                 </div>
               ))}
-              {quiz.bank.length === 0 && (
+              {(!quiz.bank || quiz.bank.length === 0) && (
                 <div className="flex flex-col items-center justify-center h-48 text-slate-400 space-y-4">
                   <HelpCircle className="w-12 h-12 opacity-50" />
                   <p className="font-bold">No cards in this quiz yet. Add some on the left!</p>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { CardData, DisplayStrategy, GameMode, Team, Quiz } from './types';
+import { CardData, Question, DisplayStrategy, GameMode, Team, Quiz } from './types';
 import defaultQuestions from './data/questions.json';
 import QuizEditor from './components/QuizEditor';
 import CourseInput from './components/CourseInput';
@@ -108,10 +108,14 @@ export default function App() {
   });
 
   // Persist current state across refreshes (session for game state, local for draft data)
-  useEffect(() => { localStorage.setItem('trivia-selected-quiz-id', selectedQuizId); }, [selectedQuizId]);
   useEffect(() => { 
-    if (editingQuiz) localStorage.setItem('trivia-editing-quiz', JSON.stringify(editingQuiz));
-    else localStorage.removeItem('trivia-editing-quiz');
+    try { localStorage.setItem('trivia-selected-quiz-id', selectedQuizId); } catch {}
+  }, [selectedQuizId]);
+  useEffect(() => { 
+    try {
+      if (editingQuiz) localStorage.setItem('trivia-editing-quiz', JSON.stringify(editingQuiz));
+      else localStorage.removeItem('trivia-editing-quiz');
+    } catch {}
   }, [editingQuiz]);
 
   // Setup state
@@ -160,14 +164,19 @@ export default function App() {
 [Optional: You can upload your lesson PDF or slideshow to this chat to make the questions specific to your materials!]
 
 IMPORTANT RULES:
+- Questions MUST be simple, concise Knowledge & Understanding questions with the fewest words possible.
+- Focus strictly on core facts, definitions, key terminology, and straightforward recall (Ontario curriculum K/U category).
+- Keep questions short, clear, and direct (ideally under 12-15 words). Avoid lengthy scenarios, word problems, or multi-part questions.
+- Answers MUST be very short, punchy, and direct—similar to Jeopardy! (strictly 1 to 3 words, such as a single term, name, number, or formula). NEVER provide full sentences, conversational filler, or explanations in the answer.
 - DO NOT generate an interactive quiz, UI, or markdown preview.
 - Output ONLY valid raw JSON format. No backticks, no intro text, no code block formatting.
-- Vary the point values ("pts") based on question difficulty so they average around 15 points per question (e.g., 5, 10, 15, 20, 25).
+- Vary the point values ("pts") based on question difficulty so they average around 20 points per question (e.g., 10, 15, 20, 25, 30).
 - DO NOT include citations or reference markers (e.g., [cite1], [1], [source]) anywhere in the output. Strip all references from the generated questions and answers.
 
 Output EXACTLY this format:
 [
-  {"q": "Question text", "a": "Answer text", "pts": 100}
+  {"q": "What organelle is the powerhouse of the cell?", "a": "Mitochondria", "pts": 20},
+  {"q": "What gas do plants absorb during photosynthesis?", "a": "Carbon dioxide", "pts": 15}
 ]`;
   };
 
@@ -178,41 +187,180 @@ Output EXACTLY this format:
     setTimeout(() => setIsCopied(false), 2000);
   };
 
+  const cleanString = (val: any): string => {
+    if (val === null || val === undefined) return '';
+    if (typeof val === 'string') {
+      return val.replace(/\[cite\d+\]/gi, '').replace(/\[\d+\]/g, '').replace(/\[source\]/gi, '').trim();
+    }
+    if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+    if (Array.isArray(val)) {
+      return val.map(cleanString).filter(Boolean).join(', ');
+    }
+    if (typeof val === 'object') {
+      if (val.text) return cleanString(val.text);
+      if (val.answer) return cleanString(val.answer);
+      if (val.value) return cleanString(val.value);
+      if (val.content) return cleanString(val.content);
+      if (val.q) return cleanString(val.q);
+      if (val.a) return cleanString(val.a);
+      return JSON.stringify(val);
+    }
+    return String(val);
+  };
+
+  const cleanPoints = (val: any): number => {
+    if (typeof val === 'number' && !isNaN(val)) return val;
+    if (typeof val === 'string') {
+      const parsed = parseInt(val.replace(/[^\d-]/g, ''));
+      if (!isNaN(parsed)) return parsed;
+    }
+    return 20;
+  };
+
   const handleImportJSON = () => {
     if (!user) return alert("Please log in to generate quizzes.");
     
     try {
       let rawText = aiPastedJSON.trim();
-      const match = rawText.match(/\[[\s\S]*\]/);
-      if (match) {
-        rawText = match[0];
+      if (!rawText) {
+        alert("Please paste the AI's response first.");
+        return;
       }
-      
-      const parsedData = JSON.parse(rawText);
-      
+
+      // 1. Strip markdown code fences if present
+      const block = rawText.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+      if (block) {
+        rawText = block[1].trim();
+      }
+
+      const tryParse = (str: string) => {
+        try {
+          return JSON.parse(str);
+        } catch {
+          // Clean trailing commas before } or ]
+          const fixed = str.replace(/,\s*([\]}])/g, "$1");
+          return JSON.parse(fixed);
+        }
+      };
+
+      let parsedData: any = null;
+
+      // Try parsing full string
+      try {
+        parsedData = tryParse(rawText);
+      } catch {}
+
+      // Try array starting with [ followed by {
+      if (!parsedData) {
+        const arrStart = rawText.search(/\[\s*\{/);
+        const arrEnd = rawText.lastIndexOf("]");
+        if (arrStart !== -1 && arrEnd > arrStart) {
+          try {
+            parsedData = tryParse(rawText.slice(arrStart, arrEnd + 1));
+          } catch {}
+        }
+      }
+
+      // Try object starting with { and ending with }
+      if (!parsedData) {
+        const objStart = rawText.indexOf("{");
+        const objEnd = rawText.lastIndexOf("}");
+        if (objStart !== -1 && objEnd > objStart) {
+          try {
+            parsedData = tryParse(rawText.slice(objStart, objEnd + 1));
+          } catch {}
+        }
+      }
+
+      // Try any bracket pair [ ... ]
+      if (!parsedData) {
+        const plainStart = rawText.indexOf("[");
+        const plainEnd = rawText.lastIndexOf("]");
+        if (plainStart !== -1 && plainEnd > plainStart) {
+          try {
+            parsedData = tryParse(rawText.slice(plainStart, plainEnd + 1));
+          } catch {}
+        }
+      }
+
+      if (!parsedData) {
+        throw new Error("Could not find valid JSON format");
+      }
+
+      // Extract questions array
+      let rawList: any[] = [];
       if (Array.isArray(parsedData)) {
-        const data = parsedData.map((item: any) => ({ ...item, type: 'q' }));
-        const newQuiz: Quiz = {
-          id: `quiz-${Date.now()}`,
-          name: `${aiTopic} Trivia`,
-          course: aiCourse,
-          userId: user ? user.uid : 'anonymous',
-          authorName: user ? (user.displayName || user.email || 'Anonymous') : 'AI System',
-          bank: data as CardData[],
-        };
-        // Do not publish instantly, open in editor for review
-        setEditingQuiz(newQuiz);
-        setGameState('editing');
-        setQuizTab('personal');
-        setAiTopic('');
-        setAiCourse('');
-        setAiPastedJSON('');
-        setShowAIModal(false);
-      } else {
-        alert("Invalid format: The pasted output must be a JSON array of questions.");
+        rawList = parsedData;
+      } else if (parsedData && typeof parsedData === 'object') {
+        if (Array.isArray(parsedData.questions)) rawList = parsedData.questions;
+        else if (Array.isArray(parsedData.quiz)) rawList = parsedData.quiz;
+        else if (Array.isArray(parsedData.cards)) rawList = parsedData.cards;
+        else if (Array.isArray(parsedData.items)) rawList = parsedData.items;
+        else if (Array.isArray(parsedData.data)) rawList = parsedData.data;
+        else if (Array.isArray(parsedData.trivia)) rawList = parsedData.trivia;
+        else {
+          const vals = Object.values(parsedData);
+          if (vals.some((v: any) => v && typeof v === 'object' && (v.q || v.question))) {
+            rawList = vals;
+          }
+        }
       }
-    } catch (e) {
-      alert("Error parsing JSON. Please make sure you copied only the raw JSON output from Gemini.");
+
+      if (!Array.isArray(rawList) || rawList.length === 0) {
+        alert("Invalid format: The pasted output did not contain a list of questions.");
+        return;
+      }
+
+      // Clean & sanitize each card to ensure no objects/arrays break React rendering
+      const sanitizedCards: CardData[] = rawList
+        .filter((item: any) => item !== null && item !== undefined && typeof item === 'object')
+        .map((item: any, idx: number) => {
+          const q = cleanString(item.q ?? item.question ?? item.prompt ?? `Question ${idx + 1}`);
+          const a = cleanString(item.a ?? item.answer ?? item.solution ?? '');
+          const pts = cleanPoints(item.pts ?? item.points ?? item.point ?? item.score ?? 20);
+          return {
+            id: `card-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`,
+            type: 'q',
+            q: q || `Question ${idx + 1}`,
+            a: a || 'No answer provided',
+            pts,
+          } as Question;
+        })
+        .filter((card) => card.q.trim().length > 0);
+
+      if (sanitizedCards.length === 0) {
+        alert("Could not extract any valid questions from the pasted text. Please check the JSON format and try again.");
+        return;
+      }
+
+      // Auto-extract topic or title if present
+      const fallbackTitle = parsedData?.name || parsedData?.title || parsedData?.topic;
+      const quizName = aiTopic.trim() 
+        ? `${aiTopic.trim()} Trivia` 
+        : (fallbackTitle ? `${fallbackTitle} Trivia` : 'AI Generated Trivia');
+
+      const quizCourse = aiCourse.trim() || parsedData?.course || '';
+
+      const newQuiz: Quiz = {
+        id: `quiz-${Date.now()}`,
+        name: quizName,
+        course: quizCourse,
+        userId: user ? user.uid : 'anonymous',
+        authorName: user ? (user.displayName || user.email || 'Anonymous') : 'AI System',
+        bank: sanitizedCards,
+        isPublic: false,
+      };
+
+      // Open in editor for teacher review before saving
+      setEditingQuiz(newQuiz);
+      setGameState('editing');
+      setQuizTab('personal');
+      setAiTopic('');
+      setAiCourse('');
+      setAiPastedJSON('');
+      setShowAIModal(false);
+    } catch (e: any) {
+      alert("Error parsing JSON. Please ensure you copied the AI response containing the questions list.");
     }
   };
 
@@ -476,12 +624,12 @@ Output EXACTLY this format:
     const selectedQuiz = quizzes.find(q => q.id === selectedQuizId);
     if (!selectedQuiz) return;
     
-    let pool = [...selectedQuiz.bank];
+    let pool = [...(selectedQuiz.bank || [])];
     if (includeDefaultWildcards) {
        pool.push(
-         { type: 'w', action: 'free', text: 'Free points! Everybody gets a little boost.', pts: 200 },
-         { type: 'w', action: 'lose', text: 'Oh no! You lost some points.', pts: -200 },
-         { type: 'w', action: 'steal', text: 'Steal points from the leading team!', pts: 300 },
+         { type: 'w', action: 'free', text: 'Free points! Everybody gets a little boost.', pts: 20 },
+         { type: 'w', action: 'lose', text: 'Oh no! You lost some points.', pts: -20 },
+         { type: 'w', action: 'steal', text: 'Steal points from the leading team!', pts: 25 },
          { type: 'w', action: 'swap', text: 'Surprise! Swap scores with another team.', pts: 0 }
        );
     }
@@ -769,10 +917,27 @@ Output EXACTLY this format:
     );
   };
 
-  if (gameState === 'editing' && editingQuiz) {
+  if (gameState === 'editing') {
+    if (!editingQuiz) {
+      return (
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 text-slate-800 font-sans">
+          <div className="bg-white p-8 rounded-2xl shadow-md border-2 border-slate-200 text-center max-w-md">
+            <h2 className="text-2xl font-black mb-2">No Quiz Loaded</h2>
+            <p className="text-slate-600 font-bold mb-6">No quiz data was found to edit.</p>
+            <button 
+              onClick={() => setGameState('setup')}
+              className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-black rounded-xl transition-all shadow-md active:scale-95"
+            >
+              Return to Setup
+            </button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
         <QuizEditor 
+          key={editingQuiz.id}
           user={user}
           initialQuiz={editingQuiz} 
           onSave={handleSaveQuiz} 
@@ -951,7 +1116,7 @@ Output EXACTLY this format:
                   >
                     <div className="flex justify-between items-start w-full mb-1 gap-2">
                       <h3 className="font-black text-slate-800 text-lg leading-tight line-clamp-2">{q.name}</h3>
-                      <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-md shrink-0">{q.bank.length} cards</span>
+                      <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-md shrink-0">{(q.bank || []).length} cards</span>
                     </div>
                     <p className="text-sm font-bold text-slate-500 truncate w-full mt-1">Course: {q.course || 'Uncategorized'}</p>
                     <p className="text-xs text-slate-400 mt-2 font-medium truncate w-full">By: {q.authorName || 'Anonymous'}</p>
@@ -1070,7 +1235,7 @@ Output EXACTLY this format:
                     )}
                   </div>
                   <div className="flex flex-col gap-2 max-h-64 overflow-y-auto pr-2">
-                    {quizzes.find(q => q.id === selectedQuizId)?.bank.map((card, idx) => (
+                    {(quizzes.find(q => q.id === selectedQuizId)?.bank || []).map((card, idx) => (
                        <div key={idx} className="bg-white border-2 border-slate-200 rounded-xl p-3 flex justify-between items-center group hover:border-slate-300">
                          <div className="flex-1 pr-4">
                            {card.type === 'q' ? (
@@ -1104,7 +1269,7 @@ Output EXACTLY this format:
                                       onClick={() => {
                                         const q = quizzes.find(quiz => quiz.id === selectedQuizId);
                                         if (!q) return;
-                                        const updated = {...q, bank: q.bank.filter((_, i) => i !== idx)};
+                                        const updated = {...q, bank: (q.bank || []).filter((_, i) => i !== idx)};
                                         saveQuizzes(updated);
                                         setConfirmDeleteCardIdx(null);
                                       }} 
@@ -1113,7 +1278,7 @@ Output EXACTLY this format:
                                       Yes
                                     </button>
                                     <button 
-                                      onClick={() => setConfirmDeleteCardIdx(null)}
+                                      onClick={() => setConfirmDeleteCardIdx(null)} 
                                       className="px-2 py-1 text-xs font-bold text-slate-600 bg-slate-200 hover:bg-slate-300 rounded-md"
                                     >
                                       No
@@ -1133,7 +1298,7 @@ Output EXACTLY this format:
                          </div>
                        </div>
                     ))}
-                    {quizzes.find(q => q.id === selectedQuizId)?.bank.length === 0 && (
+                    {(quizzes.find(q => q.id === selectedQuizId)?.bank || []).length === 0 && (
                       <p className="text-slate-500 italic text-sm py-4">No cards in this bank. Use the AI generator or Edit Quiz to add some!</p>
                     )}
                   </div>
@@ -1239,8 +1404,8 @@ Output EXACTLY this format:
 
       {/* AI Generate Modal overlay */}
       {showAIModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="bg-white rounded-[2rem] p-6 md:p-8 max-w-md w-full shadow-2xl border-4 border-slate-200 animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-[2rem] p-5 sm:p-6 md:p-8 max-w-md w-full shadow-2xl border-4 border-slate-200 animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto my-auto">
             <h2 className="text-2xl font-black text-slate-800 mb-6 flex items-center gap-2">
               <Zap className="w-6 h-6 text-yellow-500 fill-current" /> Question Generator
             </h2>
@@ -1290,7 +1455,7 @@ Output EXACTLY this format:
                 <textarea
                   value={aiPastedJSON}
                   onChange={e => setAiPastedJSON(e.target.value)}
-                  placeholder='[{"q": "What is...", "a": "Answer", "pts": 100}]'
+                  placeholder='[{"q": "What organelle is the powerhouse of the cell?", "a": "Mitochondria", "pts": 20}]'
                   className="w-full h-32 px-4 py-3 bg-slate-50 border-2 border-slate-300 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-mono text-sm text-slate-800 resize-none"
                 />
               </div>
@@ -1397,124 +1562,126 @@ Output EXACTLY this format:
 
       {/* Modal */}
       {selectedCard && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-3xl w-full p-10 md:p-14 text-center animate-in fade-in zoom-in-95 duration-300 relative border-4 border-slate-200">
-            
-            <h3 className="text-4xl md:text-5xl font-black text-slate-800 mb-12 leading-tight">
-              {selectedCard.type === 'q' ? selectedCard.q : selectedCard.text}
-            </h3>
-
-            {selectedCard.type === 'q' && (
-              <div className="space-y-12">
-                {showAnswer ? (
-                  <div className="bg-slate-100 p-10 rounded-3xl border-2 border-slate-200 shadow-inner animate-in fade-in slide-in-from-top-8">
-                    <p className="text-sm font-black text-slate-400 uppercase tracking-widest mb-4">Answer</p>
-                    <p className="text-4xl font-black text-slate-800">{selectedCard.a}</p>
-                  </div>
-                ) : (
-                  <button 
-                    onClick={() => setShowAnswer(true)}
-                    className="bg-blue-500 hover:bg-blue-400 border-b-[8px] border-blue-700 active:border-b-0 active:translate-y-[8px] text-white font-black py-5 px-12 rounded-2xl text-2xl transition-all"
-                  >
-                    Show Answer
-                  </button>
-                )}
-
-                {showAnswer && (
-                  <div className="mt-8">
-                    {!stealMode ? (
-                      <div className="flex flex-col sm:flex-row gap-6 justify-center">
-                        <button 
-                          onClick={() => handleQuestionAnswer(false)}
-                          className="flex-1 bg-red-500 hover:bg-red-400 border-b-[6px] border-red-700 active:border-b-0 active:translate-y-[6px] text-white font-black py-6 px-6 rounded-2xl text-2xl transition-all"
-                        >
-                          Incorrect
-                        </button>
-                        <button 
-                          onClick={() => handleQuestionAnswer(true)}
-                          className="flex-1 bg-green-500 hover:bg-green-400 border-b-[6px] border-green-700 active:border-b-0 active:translate-y-[6px] text-white font-black py-6 px-6 rounded-2xl text-2xl transition-all"
-                        >
-                          Correct (+{selectedCard.pts})
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-center">
-                        <h3 className="text-xl font-bold text-slate-700 mb-4 flex items-center gap-2"><Zap className="w-5 h-5 text-yellow-500" /> Steal Opportunity!</h3>
-                        <p className="text-slate-500 mb-6 font-medium text-center">Did another team get the correct answer?</p>
-                        <div className="flex flex-wrap gap-4 justify-center w-full">
-                          {teams.map((t, idx) => (
-                            idx !== currentTeamIdx && (
-                              <button
-                                key={idx}
-                                onClick={() => handleSteal(idx)}
-                                className="flex-1 min-w-[150px] bg-blue-500 hover:bg-blue-400 border-b-[6px] border-blue-700 active:border-b-0 active:translate-y-[6px] text-white font-black py-4 px-4 rounded-xl text-lg transition-all"
-                              >
-                                {t.name} Stole It!
-                              </button>
-                            )
-                          ))}
-                          <button
-                            onClick={() => handleSteal(null)}
-                            className="flex-1 min-w-[150px] bg-slate-500 hover:bg-slate-400 border-b-[6px] border-slate-700 active:border-b-0 active:translate-y-[6px] text-white font-black py-4 px-4 rounded-xl text-lg transition-all"
-                          >
-                            Nobody Stole
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {selectedCard.type === 'w' && (
-              <div className="mt-12">
-                <button 
-                  onClick={handleWildcardResolve}
-                  className="bg-purple-500 hover:bg-purple-400 border-b-[8px] border-purple-700 active:border-b-0 active:translate-y-[8px] text-white font-black py-5 px-16 rounded-2xl text-3xl transition-all"
-                >
-                  Continue
-                </button>
-              </div>
-            )}
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 md:p-6 bg-slate-900/70 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white rounded-[2rem] sm:rounded-[2.5rem] shadow-2xl max-w-3xl w-full p-6 sm:p-8 md:p-10 text-center animate-in fade-in zoom-in-95 duration-300 relative border-4 border-slate-200 max-h-[90vh] overflow-y-auto my-auto flex flex-col justify-between">
             
             <button 
                onClick={() => setSelectedCard(null)} 
-               className="absolute top-6 right-6 p-3 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
+               className="absolute top-4 right-4 sm:top-6 sm:right-6 p-2 sm:p-3 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors z-10"
                aria-label="Close"
             >
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                <svg width="24" height="24" className="sm:w-7 sm:h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
             </button>
+
+            <div className="my-auto py-2">
+              <h3 className="text-2xl sm:text-3xl md:text-4xl font-black text-slate-800 mb-6 md:mb-8 leading-tight px-6 sm:px-8">
+                {selectedCard.type === 'q' ? selectedCard.q : selectedCard.text}
+              </h3>
+
+              {selectedCard.type === 'q' && (
+                <div className="space-y-6 sm:space-y-8">
+                  {showAnswer ? (
+                    <div className="bg-slate-100 p-6 sm:p-8 rounded-2xl sm:rounded-3xl border-2 border-slate-200 shadow-inner animate-in fade-in slide-in-from-top-4">
+                      <p className="text-xs sm:text-sm font-black text-slate-400 uppercase tracking-widest mb-2 sm:mb-3">Answer</p>
+                      <p className="text-2xl sm:text-3xl md:text-4xl font-black text-slate-800">{selectedCard.a}</p>
+                    </div>
+                  ) : (
+                    <button 
+                      onClick={() => setShowAnswer(true)}
+                      className="bg-blue-500 hover:bg-blue-400 border-b-[6px] sm:border-b-[8px] border-blue-700 active:border-b-0 active:translate-y-[6px] text-white font-black py-4 sm:py-5 px-8 sm:px-12 rounded-2xl text-xl sm:text-2xl transition-all"
+                    >
+                      Show Answer
+                    </button>
+                  )}
+
+                  {showAnswer && (
+                    <div className="mt-4 sm:mt-6">
+                      {!stealMode ? (
+                        <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 justify-center">
+                          <button 
+                            onClick={() => handleQuestionAnswer(false)}
+                            className="flex-1 bg-red-500 hover:bg-red-400 border-b-[6px] border-red-700 active:border-b-0 active:translate-y-[6px] text-white font-black py-4 sm:py-5 px-4 sm:px-6 rounded-2xl text-xl sm:text-2xl transition-all"
+                          >
+                            Incorrect
+                          </button>
+                          <button 
+                            onClick={() => handleQuestionAnswer(true)}
+                            className="flex-1 bg-green-500 hover:bg-green-400 border-b-[6px] border-green-700 active:border-b-0 active:translate-y-[6px] text-white font-black py-4 sm:py-5 px-4 sm:px-6 rounded-2xl text-xl sm:text-2xl transition-all"
+                          >
+                            Correct (+{selectedCard.pts})
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center">
+                          <h3 className="text-lg sm:text-xl font-bold text-slate-700 mb-3 flex items-center gap-2"><Zap className="w-5 h-5 text-yellow-500" /> Steal Opportunity!</h3>
+                          <p className="text-slate-500 mb-4 font-medium text-center text-sm sm:text-base">Did another team get the correct answer?</p>
+                          <div className="flex flex-wrap gap-3 justify-center w-full">
+                            {teams.map((t, idx) => (
+                              idx !== currentTeamIdx && (
+                                <button
+                                  key={idx}
+                                  onClick={() => handleSteal(idx)}
+                                  className="flex-1 min-w-[130px] sm:min-w-[150px] bg-blue-500 hover:bg-blue-400 border-b-[6px] border-blue-700 active:border-b-0 active:translate-y-[6px] text-white font-black py-3 sm:py-4 px-3 sm:px-4 rounded-xl text-base sm:text-lg transition-all"
+                                >
+                                  {t.name} Stole It!
+                                </button>
+                              )
+                            ))}
+                            <button
+                              onClick={() => handleSteal(null)}
+                              className="flex-1 min-w-[130px] sm:min-w-[150px] bg-slate-500 hover:bg-slate-400 border-b-[6px] border-slate-700 active:border-b-0 active:translate-y-[6px] text-white font-black py-3 sm:py-4 px-3 sm:px-4 rounded-xl text-base sm:text-lg transition-all"
+                            >
+                              Nobody Stole
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {selectedCard.type === 'w' && (
+                <div className="mt-8 sm:mt-10">
+                  <button 
+                    onClick={handleWildcardResolve}
+                    className="bg-purple-500 hover:bg-purple-400 border-b-[6px] sm:border-b-[8px] border-purple-700 active:border-b-0 active:translate-y-[6px] text-white font-black py-4 sm:py-5 px-10 sm:px-14 rounded-2xl text-2xl sm:text-3xl transition-all"
+                  >
+                    Continue
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
 
       {showRulesModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="bg-white rounded-[2rem] p-6 md:p-8 max-w-lg w-full shadow-2xl border-4 border-slate-200 animate-in zoom-in-95 duration-200 relative">
-            <h2 className="text-3xl font-black text-slate-800 mb-6 flex items-center gap-3">
-              <HelpCircle className="w-8 h-8 text-blue-500" /> Game Rules
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-[2rem] p-6 sm:p-8 max-w-lg w-full shadow-2xl border-4 border-slate-200 animate-in zoom-in-95 duration-200 relative max-h-[90vh] overflow-y-auto my-auto">
+            <h2 className="text-2xl sm:text-3xl font-black text-slate-800 mb-6 flex items-center gap-3">
+              <HelpCircle className="w-7 h-7 sm:w-8 sm:h-8 text-blue-500" /> Game Rules
             </h2>
-            <div className="space-y-6 text-slate-700">
+            <div className="space-y-5 sm:space-y-6 text-slate-700 text-sm sm:text-base">
               <div>
-                <h3 className="text-xl font-bold text-slate-900 mb-2">🎯 Objective</h3>
+                <h3 className="text-lg sm:text-xl font-bold text-slate-900 mb-1.5">🎯 Objective</h3>
                 <p className="font-medium">Teams take turns selecting mystery tiles from the board to reveal either a Question or a Wildcard. Accumulate the most points to win!</p>
               </div>
               
               <div>
-                <h3 className="text-xl font-bold text-slate-900 mb-2">🤔 Answering & Stealing</h3>
+                <h3 className="text-lg sm:text-xl font-bold text-slate-900 mb-1.5">🤔 Answering & Stealing</h3>
                 <p className="font-medium">If a team answers a question correctly, they earn the points. If they answer incorrectly, they get 0 points, and <strong className="text-blue-600">another team can STEAL</strong> the question to earn the points instead!</p>
               </div>
 
               <div>
-                <h3 className="text-xl font-bold text-slate-900 mb-2">⚡ Wildcards</h3>
+                <h3 className="text-lg sm:text-xl font-bold text-slate-900 mb-1.5">⚡ Wildcards</h3>
                 <p className="font-medium">Watch out! Some tiles are wildcards. They can instantly award free points, deduct points, let you steal from the leader, or force a score swap.</p>
               </div>
             </div>
             
             <button 
               onClick={() => setShowRulesModal(false)}
-              className="mt-8 w-full bg-blue-500 hover:bg-blue-400 border-b-[6px] border-blue-700 active:border-b-0 active:translate-y-[6px] text-white font-black py-4 rounded-xl text-xl transition-all"
+              className="mt-6 sm:mt-8 w-full bg-blue-500 hover:bg-blue-400 border-b-[6px] border-blue-700 active:border-b-0 active:translate-y-[6px] text-white font-black py-3.5 sm:py-4 rounded-xl text-lg sm:text-xl transition-all"
             >
               Got it!
             </button>

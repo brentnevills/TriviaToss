@@ -9,12 +9,12 @@ interface CourseInputProps {
 }
 
 export default function CourseInput({ value, onChange, placeholder, className }: CourseInputProps) {
-  const [inputValue, setInputValue] = useState(value);
+  const [inputValue, setInputValue] = useState(value || '');
   const [showDropdown, setShowDropdown] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setInputValue(value);
+    setInputValue(value || '');
   }, [value]);
 
   useEffect(() => {
@@ -22,7 +22,8 @@ export default function CourseInput({ value, onChange, placeholder, className }:
       if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
         setShowDropdown(false);
         // Force valid value on blur
-        if (inputValue && !ONTARIO_COURSES.includes(inputValue.toUpperCase())) {
+        const val = (inputValue || '').trim().toUpperCase();
+        if (val && !ONTARIO_COURSES.includes(val)) {
           setInputValue('');
           onChange('');
         }
@@ -32,8 +33,9 @@ export default function CourseInput({ value, onChange, placeholder, className }:
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [inputValue, onChange]);
 
+  const safeInput = (inputValue || '').trim().toLowerCase();
   const filteredCourses = ONTARIO_COURSES.filter(course => 
-    course.toLowerCase().startsWith(inputValue.toLowerCase())
+    course.toLowerCase().startsWith(safeInput)
   );
 
   const handleSelect = (course: string) => {
@@ -43,8 +45,9 @@ export default function CourseInput({ value, onChange, placeholder, className }:
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setInputValue(e.target.value.toUpperCase());
-    onChange(e.target.value.toUpperCase());
+    const val = (e.target.value || '').toUpperCase();
+    setInputValue(val);
+    onChange(val);
     setShowDropdown(true);
   };
 
@@ -61,7 +64,8 @@ export default function CourseInput({ value, onChange, placeholder, className }:
     }
     
     // Otherwise, enforce valid course on blur (e.g. via Tab key)
-    if (inputValue && !ONTARIO_COURSES.includes(inputValue.toUpperCase())) {
+    const val = (inputValue || '').trim().toUpperCase();
+    if (val && !ONTARIO_COURSES.includes(val)) {
       setInputValue('');
       onChange('');
     }
